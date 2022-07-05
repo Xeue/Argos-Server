@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta name="viewport" content="initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <link id="favicon_32" rel="icon" href="img/icon/Temp48.png" sizes="48x48">
+    <link id="favicon_192" rel="icon" href="img/icon/Temp96.png" sizes="96x96">
+    <title><%= serverName %> – Monitoring</title>
+    <link href="css/fonts.css" rel="stylesheet" type="text/css">
+    <script type="text/javascript" src="js/jQuery.js"></script>
+    <script type="text/javascript">
+      let servers = ["<%= host %>"];
+      let temps = <%-JSON.stringify(allTemps)%>;
+      let tempF = temps.f;
+      let tempM = temps.m;
+      let tempB = temps.b;
+      let tempA = temps.a;
+      let f = {};
+      let m = {};
+      let b = {};
+      let a = {};
+      let pings = {};
+      let allPings = <%-JSON.stringify(pings)%>;
+      let boots = {};
+      let allBoots = <%-JSON.stringify(boots)%>;
+
+
+      const rF = Object.keys(tempF).reverse();
+      rF.forEach(key => {
+        if (tempF[key] != -1) {
+          f[new Date(key)] = tempF[key];
+        } else {
+          f[new Date(key)] = tempA[key];
+        }
+      });
+
+      const rM = Object.keys(tempM).reverse();
+      rM.forEach(key => {
+        if (tempM[key] != -1) {
+          m[new Date(key)] = tempM[key];
+        } else {
+          m[new Date(key)] = tempA[key];
+        }
+      });
+
+      const rB = Object.keys(tempB).reverse();
+      rB.forEach(key => {
+        if (tempB[key] != -1) {
+          b[new Date(key)] = tempB[key];
+        } else {
+          b[new Date(key)] = tempA[key];
+        }
+      });
+
+      const rA = Object.keys(tempA).reverse();
+      rA.forEach(key => {
+        if (tempA[key] != -1) {
+          a[new Date(key)] = tempA[key];
+        }
+      });
+
+      const rP = Object.keys(allPings).reverse();
+      rP.forEach(key => {
+        pings[new Date(key)] = allPings[key];
+      });
+      const rBo = Object.keys(allBoots).reverse();
+      rBo.forEach(key => {
+        boots[new Date(key)] = 1;
+      });
+      $(document).ready(function() {
+        $("#tempTime").html(new Date("<%= temps?.time %>"));
+        $("#pingTime").html(new Date("<%= ping?.Time %>"));
+        $("#bootTime").html(new Date("<%= boot?.Time %>"));
+      });
+
+    </script>
+    <script type="text/javascript" src="js/commonWS.js"></script>
+    <script type="text/javascript" src="js/index.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.8.0/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@^3"></script>
+    <script src="https://cdn.jsdelivr.net/npm/moment@^2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment@^1"></script>
+    <link rel="stylesheet" href="css/index.css">
+  </head>
+  <body>
+    <main id="t_indicatior">
+      <section class="panel">
+        <h1>Number of Online Vision PCs</h1>
+        <canvas id="pingChart"></canvas>
+        <div class="buttonBox">
+          <button class="pingBut" data-time="2419200">Last Month</button>
+          <button class="pingBut" data-time="604800">Last Week</button>
+          <button class="pingBut" data-time="172800">2 Days</button>
+          <button class="pingBut" data-time="86400">1 Day</button>
+          <button class="pingBut" data-time="43200">12 Hours</button>
+          <button class="pingBut" data-time="21600">6 Hours</button>
+          <button class="pingBut" data-time="7200">2 Hours</button>
+          <button class="pingBut" data-time="1800">30 Mins</button>
+        </div>
+        <pre class="infoBox" id="pingTime"><%= ping.Time %></pre>
+      </section>
+      <section class="panel">
+        <h1>How Hot it is</h1>
+        <canvas id="tempChart"></canvas>
+        <div class="buttonBox">
+          <button class="tempBut" data-time="2419200">Last Month</button>
+          <button class="tempBut" data-time="604800">Last Week</button>
+          <button class="tempBut" data-time="172800">2 Days</button>
+          <button class="tempBut" data-time="86400">1 Day</button>
+          <button class="tempBut" data-time="43200">12 Hours</button>
+          <button class="tempBut" data-time="21600">6 Hours</button>
+          <button class="tempBut" data-time="7200">2 Hours</button>
+        </div>
+        <div class="infoBox">
+          <div>Front: <span id="front"><%= temps.f %></span>°C</div>
+          <div>Middle: <span id="middle"><%= temps.m %></span>°C</div>
+          <div>Back: <span id="back"><%= temps.b %></span>°C</div>
+          <div>Average: <span id="average"><%= temps.a %></span>°C</div>
+          <div>Updated: <span id="tempTime"></span></div>
+        </div>
+      </section>
+      <section class="panel">
+        <h1>Times the Vision PC was turned on</h1>
+        <canvas id="bootChart"></canvas>
+        <pre class="infoBox" id="bootTime"><%= boot?.Time %></pre>
+      </section>
+    </main>
+  </body>
+</html>
