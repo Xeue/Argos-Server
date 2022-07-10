@@ -118,15 +118,13 @@ function makeHeader() {
   header.timestamp = new Date().getTime();
   header.version = version;
   header.type = type;
+  header.system = currentSystem;
   if (connecting == 0) {
     header.active = true;
   } else {
     header.active = false;
   }
   header.messageID = header.timestamp;
-  header.recipients = [
-    currentCon
-  ];
   return header;
 }
 

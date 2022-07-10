@@ -23,21 +23,27 @@ const type = "Server";
 const loadTime = new Date().getTime();
 
 let DBConn = 0;
-let MYsqlDetails = JSON.parse(fs.readFileSync(__dirname + "/database.conf"));
+const SQLLogging = false;
 
 class Datebase {
   constructor() {
     this.connection = mysql.createPool(MYsqlDetails);
     DBConn++;
-    log(`${g}Connecting${w} to SQL database, current connections: ${y}${DBConn}${w}`, "S");
+    if (SQLLogging) {
+      log(`${g}Connecting${w} to SQL database, current connections: ${y}${DBConn}${w}`, "S");
+    }
   }
   query(sql, args) {
     return new Promise( ( resolve, reject ) => {
       this.connection.query( sql, args, ( err, rows ) => {
-        if ( err )
-          return reject( err );
+        if (err) {
+          logObj("SQL Error", err, "E");
+          return reject(err);
+        }
         resolve( rows );
-        logObj("Data from DB", rows, "A");
+        if (SQLLogging) {
+          logObj("Data from DB", rows, "A");
+        }
       } );
     } );
   }
@@ -53,10 +59,14 @@ class Datebase {
       }
       let sql = `INSERT INTO \`${table}\` (${keys.join(',')}) VALUES (${values.join(',')})`;
       this.connection.query( sql, args, ( err, result, fields ) => {
-        if ( err )
-          return reject( err );
+        if (err) {
+          logObj("SQL Error", err, "E");
+          return reject(err);
+        }
         resolve( result );
-        logObj("Inserted into DB", result, "A");
+        if (SQLLogging) {
+          logObj("Inserted into DB", result, "A");
+        }
       } );
     } );
   }
@@ -81,35 +91,34 @@ class Datebase {
       }
 
       this.connection.query( sql, args, ( err, result, fields ) => {
-        if ( err )
-          return reject( err );
+        if (err) {
+          logObj("SQL Error", err, "E");
+          return reject(err);
+        }
         resolve( result );
-        logObj("Updated DB", result, "A");
+        if (SQLLogging) {
+          logObj("Updated DB", result, "A");
+        }
       } );
     } );
   }
   close() {
     return new Promise( ( resolve, reject ) => {
       DBConn--;
-      log(`${r}Closing${w} connection to SQL database, current connections: ${y}${DBConn}${w}`, "S");
+      if (SQLLogging) {
+        log(`${r}Closing${w} connection to SQL database, current connections: ${y}${DBConn}${w}`, "S");
+      }
       this.connection.end( err => {
-        if ( err )
-          return reject( err );
+        if (err) {
+          logObj("SQL Error", err, "E");
+          return reject(err);
+        }
         resolve();
       } );
     } );
   }
 }
 
-let transporter = nodemailer.createTransport({
-  host: "smtp.titan.email",
-  port: 465,
-  secure: true,
-  auth: {
-    user: "sam@chilton.tv",
-    pass: "Gu!ldf0rd",
-  },
-});
 
 let myID = `S_${loadTime}_${version}`;
 let configLocation = __dirname;
@@ -124,6 +133,7 @@ let dbAddress = "localhost";
 let dbUsername = "wbs";
 let dbPassword = "NEPVisions!";
 let dbName = "wbs";
+let pingList = [];
 let certPath;
 let keyPath;
 let serverName = "OB Monitoring Server v"+version;
@@ -132,6 +142,8 @@ let latePings = 0;
 let latePing = true;
 let warnTemp = 29;
 let warnEmails;
+let emailOptions;
+let MYsqlDetails;
 
 let r = "\x1b[31m";
 let g = "\x1b[32m";
@@ -152,6 +164,7 @@ var serverHTTPS;
 loadArgs();
 
 loadConfig();
+let transporter = nodemailer.createTransport(emailOptions);
 
 startServer();
 
@@ -201,7 +214,6 @@ function startServer() {
             break;
           case "disconnect":
             log(`${r}${pObj.data.ID}${reset} Connection closed`, "D");
-            state.clients.disconnect(pObj.data.ID);
             sendConfigs(msgObj, socket);
             sendServers(msgObj);
             break;
@@ -217,11 +229,15 @@ function startServer() {
           case "error":
             log(`Device ${hObj.fromID} has entered an error state`, "E");
             log(`Message: ${pObj.error}`, "E");
-            logObj(`Device ${hObj.fromID} connection details`, state.clients.getDetails(socket), "E");
+            break;
+          case "log":
+            handleLog(hObj, pObj);
+            break;
+          case "get":
+            handleGet(hObj, pObj);
             break;
           default:
-            log("Unknown message: "+msgJSON, "W");
-            sendAll(msgObj);
+            logObj("Unknown message", msgObj, "W");
         }
       } catch (e) {
         try {
@@ -481,23 +497,8 @@ function startHTTPS() {
       handleRoot(request, response);
     });
 
-    app.get('/REST/ping', function(request, response) {
-      handlePing(request, response);
-    });
-
-    app.get('/REST/boot', function(request, response) {
-      handleBoot(request, response);
-    });
-
-    app.post('/REST/temp', function(request, response) {
-      handleTemps(request, response);
-    });
-
     app.get('/REST/getTemps', function(request, response) {
       getTemps(request, response);
-    });
-    app.get('/REST/getPings', function(request, response) {
-      getPings(request, response);
     });
 
     return serverHTTPS;
@@ -506,61 +507,92 @@ function startHTTPS() {
   }
 }
 
+/* Handelers */
+
+function handleLog(header, payload) {
+  switch (payload.type) {
+    case "ping":
+      handlePing(header.system);
+      break;
+    case "boot":
+      handleBoot(header.system);
+      break;
+    case "temperature":
+      handleTemps(header.system, payload);
+      break;
+  }
+}
+
+function handleGet(header, payload) {
+  switch (payload.data) {
+    case "temperature":
+      getTemperature(header, payload);
+      break;
+    case "ping":
+      getPings(header, payload);
+      break;
+    default:
+
+  }
+}
+
 function handleRoot(request, response) {
   log("Serving index page", "A");
   response.header('Content-type', 'text/html');
   const MConn = new Datebase();
-  MConn.query("SELECT * FROM `status` WHERE `Type`='Ping' AND `Status` = 1 ORDER BY `PK` DESC LIMIT 1;").then((rows)=>{
-    let ping = rows[0];
-    MConn.query("SELECT * FROM `status` WHERE `Type`='Ping' AND `PK` mod 10 = 0 ORDER BY `PK` DESC LIMIT 144;").then((rows)=>{
-      let pings = {};
-      rows.forEach( (row) => {
-        pings[row.Time] = row.Status;
-      });
-      MConn.query("SELECT * FROM `status` WHERE `Type`='Boot' ORDER BY `PK` DESC;").then((rows)=>{
-        let boot = rows[0];
-        let boots = {};
-        rows.forEach( (row) => {
-          boots[row.Time] = 1;
-        });
-        MConn.query("SELECT * FROM `temps` ORDER BY `PK` DESC LIMIT 24;").then((rows)=>{
-          let temps = rows[0];
-          let allTemps = {};
-          allTemps.f = {};
-          allTemps.m = {};
-          allTemps.b = {};
-          allTemps.a = {};
-          rows.forEach( (row) => {
-            allTemps.f[row.time] = row.f;
-            allTemps.m[row.time] = row.m;
-            allTemps.b[row.time] = row.b;
-            allTemps.a[row.time] = row.a;
-          });
+  let ping;
+  let pings;
+  let boot;
+  let boots;
+  let systems = [];
 
-          MConn.close();
-          response.render('index', {
-            host: host,
-            serverName: serverName,
-            pings: pings,
-            ping: ping,
-            boots: boots,
-            boot: boot,
-            temps: temps,
-            allTemps: allTemps
-          });
-        });
-      });
+  MConn.query("SELECT `System` AS 'Name' FROM `status` GROUP BY `System`;")
+  .then((rows)=>{
+    rows.forEach((row) => {
+      systems.push(row.Name);
+    });
+    return MConn.query("SELECT * FROM `status` WHERE `Type`='Ping' AND `Status` = 1 ORDER BY `PK` DESC LIMIT 1;")
+  }).then((rows)=>{
+    ping = rows[0];
+    return MConn.query("SELECT * FROM `status` WHERE `Type`='Ping' AND `PK` mod 10 = 0 ORDER BY `PK` DESC LIMIT 144;")
+  }).then((rows)=>{
+    pings = {};
+    rows.forEach( (row) => {
+      pings[row.Time] = row.Status;
+    });
+    return MConn.query("SELECT * FROM `status` WHERE `Type`='Boot' ORDER BY `PK` DESC;")
+  }).then((rows)=>{
+    boot = rows[0];
+    boots = {};
+    rows.forEach( (row) => {
+      boots[row.Time] = 1;
+    });
+
+    MConn.close();
+    response.render('index', {
+      host: host,
+      serverName: serverName,
+      pings: pings,
+      ping: ping,
+      boots: boots,
+      boot: boot,
+      systems: systems.filter(Boolean)
     });
   });
 }
 
-function handlePing(request, response) {
+function handlePing(system) {
   log("Recieved a ping", "D");
-
-  latePing = false;
-
-  let system = request.query.system | "Unknown";
-
+  let systems = pingList.map((item) => {return item?.name});
+  if (!systems.includes(system)) {
+    let obj = {
+      name: system,
+      latePing: false,
+      latePings: 0
+    }
+    pingList.push(obj);
+  }
+  resetPings(system);
   const MConn = new Datebase();
   MConn.insert({"Type":"Ping", "Status":1, "System":system}, "status").then((result)=>{
     MConn.close();
@@ -568,18 +600,16 @@ function handlePing(request, response) {
       "command":"data",
       "data":"ping",
       "status":1,
+      "system": system,
       "time": new Date().getTime()
     }));
     log("Recorded Ping", "D");
   });
-  response.send("Logged");
 }
 
-function handleBoot(request, response) {
+function handleBoot(system) {
   log("Recieved a boot", "D");
-  bootAlert("W");
-  let system = request.query.system | "Unknown";
-
+  bootAlert("W", system);
   const MConn = new Datebase();
   MConn.insert({"Type":"Boot", "Status":1, "System":system}, "status").then((result)=>{
     MConn.close();
@@ -590,136 +620,197 @@ function handleBoot(request, response) {
     }));
     log("Recorded boot", "D");
   });
-  response.send("Logged");
 }
 
-function handleTemps(request, response) {
+function handleTemps(system, payload) {
   log("Recieved some temps", "D");
-  let f = parseInt(request.body[0].Temp);
-  let m = parseInt(request.body[1].Temp);
-  let b = parseInt(request.body[2].Temp);
-  let a = (f+m+b)/3;
-  if (f > warnTemp) {
-    tempAlert("W","front rack", f);
-  }
-  if (m > warnTemp) {
-    tempAlert("W","middle rack", m);
-  }
-  if (b > warnTemp) {
-    tempAlert("W","back rack", b);
-  }
-  if (a > warnTemp) {
-    tempAlert("W","average", a);
-  }
+
   const MConn = new Datebase();
-  MConn.insert({
-    "f": f,
-    "m": m,
-    "b": b,
-    "a": a
-  }, "temps").then((result)=>{
-    MConn.close();
-    sendClients(makePacket({
-      "command":"data",
-      "data":"temps",
-      "front": f,
-      "middle": m,
-      "back": b,
-      "average": a,
-      "time": new Date().getTime()
-    }));
-    log("Recorded boot", "D");
+  let promises = [];
+  let average = 0;
+  let timeStamp = new Date().getTime();
+  let dataObj = {
+    "command":"data",
+    "data":"temps",
+    "system":system,
+    "replace": false,
+    "points":{}
+  };
+  dataObj.points[timeStamp] = {};
+
+  payload.data.forEach((frame) => {
+
+    if (typeof frame.Temp !== "undefined") {
+      average += frame.Temp;
+      if (frame.Temp > warnTemp) {
+        tempAlert("W", frame.Name, frame.Temp, system);
+      }
+      dataObj.points[timeStamp][frame.Name] = frame.Temp;
+      let promise = MConn.insert({
+        "frame": frame.Name,
+        "temperature": frame.Temp,
+        "system": system
+      }, "temperature");
+      promises.push(promise);
+    }
   });
-  response.send("Logged");
+
+  average = average/promises.length;
+  dataObj.points[timeStamp].average = average;
+
+  Promise.allSettled(promises).then((values) => {
+    MConn.close();
+  })
+
+  sendClients(makePacket(dataObj));
 }
 
-function getPings(request, response) {
+function getPings(header, payload) {
   log("Getting Pings", "D");
-  response.header('Content-type', 'text/html');
-  let from = request.query.from;
-  let to = request.query.to;
-  let range = to - from;
-  let interval = Math.ceil(range/1000);
+  let from = payload.from;
+  let to = payload.to;
   const MConn = new Datebase();
-  let query = `SELECT * FROM \`status\` WHERE (\`Type\`='Ping' AND \`PK\` mod ${interval} = 0 OR \`Status\`='0') AND Time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) ORDER BY \`PK\` ASC; `;
-  MConn.query(query).then((rows)=>{
+  let countQuery = `SELECT count(\`PK\`) AS 'total' FROM \`status\` WHERE time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `;
+  MConn.query(countQuery).then((rows)=>{
+    let total = rows[0].total;
+    let divisor = Math.ceil(total/1000);
+    let query = `SELECT * FROM \`status\` WHERE (\`Type\`='Ping' AND MOD(\`PK\`, ${divisor}) = 0 OR \`Status\`='0') AND Time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `;
+    return MConn.query(query);
+  }).then((rows)=>{
     let pings = {};
-    rows.forEach( (row) => {
+    rows.forEach((row) => {
       pings[row.Time] = row.Status;
     });
     MConn.close();
-    response.send(pings);
+
+    let dataObj = {
+      "command": "data",
+      "data": "ping",
+      "replace": true,
+      "system": header.system,
+      "points": pings
+    };
+
+    sendClients(makePacket(dataObj));
   });
 }
 
-function getTemps(request, response) {
-  log("Getting Temps", "D");
-  response.header('Content-type', 'text/html');
-  let from = request.query.from;
-  let to = request.query.to;
+function getTemperature(header, payload) {
+  log(`Getting temps for ${header.system}`, "D");
+  let from = payload.from;
+  let to = payload.to;
   const MConn = new Datebase();
-  let query = `SELECT * FROM \`temps\` WHERE time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) ORDER BY \`PK\` ASC; `;
-  MConn.query(query).then((rows)=>{
-    let temps = rows[0];
-    let allTemps = {};
-    allTemps.f = {};
-    allTemps.m = {};
-    allTemps.b = {};
-    allTemps.a = {};
-    rows.forEach( (row) => {
-      allTemps.f[row.time] = row.f;
-      allTemps.m[row.time] = row.m;
-      allTemps.b[row.time] = row.b;
-      allTemps.a[row.time] = row.a;
-    });
+  let dateQuery = `SELECT ROW_NUMBER() OVER (ORDER BY PK) AS Number, \`PK\`, \`time\` FROM \`temperature\` WHERE time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' GROUP BY \`time\`; `;
+  MConn.query(dateQuery).then((grouped)=>{
+    let divisor = Math.ceil(grouped.length/1000);
+    let whereArr = grouped.map((a)=>{
+      if (a.Number % divisor == 0) {
+        let data = new Date(a.time).toISOString().slice(0, 19).replace('T', ' ');
+        return `'${data}'`;
+      }
+    }).filter(Boolean);
+    let whereString = whereArr.join(",");
+    let query;
+    if (whereString == "") {
+      query = `SELECT * FROM \`temperature\` WHERE \`system\` = '${header.system}' ORDER BY \`PK\` ASC LIMIT 1; `;
+    } else {
+      query = `SELECT * FROM \`temperature\` WHERE time IN (${whereString}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `;
+    }
+    return MConn.query(query);
+  }).then((rows)=>{
     MConn.close();
-    response.send(allTemps);
+    let dataObj = {
+      "command":"data",
+      "data":"temps",
+      "system":header.system,
+      "replace": true,
+      "points":{}
+    };
+
+    rows.forEach((row, i) => {
+      let timestamp = row.time.getTime();
+      if (!dataObj.points[timestamp]) {
+        dataObj.points[timestamp] = {};
+      }
+      let point = dataObj.points[timestamp];
+      point[row.frame] = row.temperature;
+
+      delete point.average;
+      const n = Object.keys(point).length;
+      const values = Object.values(point);
+      const total = values.reduce((accumulator, value) => {
+        return accumulator + value;
+      }, 0);
+      point.average = total/n;
+    });
+
+    sendClients(makePacket(dataObj));
   });
+}
+
+function resetPings(system) {
+  let systems = pingList.map((item) => {return item?.name});
+  let index = systems.indexOf(system);
+  pingList[index].latePing = false;
+  pingList[index].latePings = 0;
 }
 
 function checkPing() {
-  if (latePing) {
-    doLatePing();
-  } else {
-    latePing = true;
-    latePings = 0;
-  }
+  pingList.forEach((system, i) => {
+    sysConfig(system.name).then((config)=>{
+      if (system.latePing && (config.warnPing)) {
+        doLatePing(system);
+      } else {
+        system.latePing = true;
+        system.latePings = 0;
+      }
+    });
+  });
 }
 
-function doLatePing() {
-  latePings++;
+function doLatePing(system) {
+  system.latePings++;
 
-  if (latePings > 1080) {
-    if (latePings % 2160 == 0) {
-      pingAlert("W", latePings/360, "hours");
+  if (system.latePings > 1080) {
+    if (system.latePings % 2160 == 0) {
+      pingAlert("W", system.latePings/360, "hours", system.name);
     }
-  } else if (latePings > 359) {
-    if (latePings % 360 == 0) {
-      pingAlert("W", latePings/360, "hours");
+  } else if (system.latePings > 359) {
+    if (system.latePings % 360 == 0) {
+      pingAlert("W", system.latePings/360, "hours", system.name);
     }
-  } else if (latePings > 31) {
-    if (latePings % 60 == 0) {
-      pingAlert("W", latePings/6, "minutes");
+  } else if (system.latePings > 31) {
+    if (system.latePings % 60 == 0) {
+      pingAlert("W", system.latePings/6, "minutes", system.name);
     }
-  } else if (latePings > 5) {
-    if (latePings % 6 == 0) {
-      pingAlert("W", latePings/6, "minutes");
+  } else if (system.latePings > 5) {
+    if (system.latePings % 6 == 0) {
+      pingAlert("W", system.latePings/6, "minutes", system.name);
     }
   }
   const MConn = new Datebase();
-  MConn.insert({"Type":"Ping","Status":0}, "status").then((result)=>{
+  MConn.insert({"Type":"Ping", "Status":0, "System":system.name}, "status").then((result)=>{
     MConn.close();
     sendClients(makePacket({
       "command":"data",
       "data":"ping",
       "status":0,
+      "system": system.name,
       "time": new Date().getTime()
     }));
-    log(`Missed ${latePings} pings`, "W");
+    log(`${system.name} missed ${system.latePings} pings`, "W");
   });
 }
 
 /* Config */
+
+function sysConfig(system) {
+  const MConn = new Datebase();
+  return MConn.query(`SELECT * FROM \`config\` WHERE \`system\` = '${system}'; `).then((rows)=>{
+    MConn.close();
+    return rows[0];
+  });
+}
 
 function loadConfig(fromFile = true) {
   if (fromFile) {
@@ -840,11 +931,96 @@ function loadConfig(fromFile = true) {
   let fileName = `${configLocation}/monitoringServer-[${yyyy}-${mm}-${dd}].log`;
   log(`Logging to file: ${y}${fileName}${w}`);
 
+  if (typeof config.emailOptions !== "undefined") {
+    emailOptions = config.emailOptions;
+  } else {
+    emailOptions = {};
+  }
+
   if (typeof config.dataBase !== "undefined" && config.dataBase !== false) {
     log(`Setting up ${y}with${w} database connection`, "C");
-    //Database connection code here
+    MYsqlDetails = config.dataBase;
+    const MConn = new Datebase();
+    let promises = [];
+    promises[0] = MConn.query(`SELECT count(*) as count
+      FROM information_schema.TABLES
+      WHERE (TABLE_SCHEMA = '${config.dataBase.database}') AND (TABLE_NAME = 'temps')
+    `).then((rows)=>{
+      if (rows[0].count == 0) {
+        log("Temperature table doesn't exist, creating new one", "S");
+        return MConn.query(`CREATE TABLE \`temps\` (
+            \`PK\` int(11) NOT NULL,
+            \`f\` float NOT NULL,
+            \`m\` float NOT NULL,
+            \`b\` float NOT NULL,
+            \`a\` float NOT NULL,
+            \`time\` timestamp NOT NULL DEFAULT current_timestamp(),
+            PRIMARY KEY (\`PK\`)
+          ) ENGINE=InnoDB DEFAULT CHARSET=latin1`)
+        .then(function() {
+          return MConn.query("ALTER TABLE `temps` MODIFY `PK` int(11) NOT NULL AUTO_INCREMENT;");
+        });
+      } else {
+        log("Temperature table already exists", "D");
+      }
+    });
+
+    promises[1] = MConn.query(`SELECT count(*) as count
+      FROM information_schema.TABLES
+      WHERE (TABLE_SCHEMA = '${config.dataBase.database}') AND (TABLE_NAME = 'status')
+    `).then((rows)=>{
+      if (rows[0].count == 0) {
+        log("Status table doesn't exist, creating new one", "S");
+        return MConn.query(`CREATE TABLE \`status\` (
+            \`PK\` int(11) NOT NULL,
+            \`Type\` varchar(255) NOT NULL,
+            \`Status\` tinyint(1) NOT NULL,
+            \`Time\` timestamp NOT NULL DEFAULT current_timestamp(),
+            \`System\` varchar(256) DEFAULT NULL,
+            PRIMARY KEY (\`PK\`)
+          ) ENGINE=InnoDB DEFAULT CHARSET=latin1`)
+        .then(function() {
+          return MConn.query("ALTER TABLE `status` MODIFY `PK` int(11) NOT NULL AUTO_INCREMENT;");
+        });
+      } else {
+        log("Status table already exists", "D");
+      }
+    });
+
+    promises[2] = MConn.query(`SELECT count(*) as count
+      FROM information_schema.TABLES
+      WHERE (TABLE_SCHEMA = '${config.dataBase.database}') AND (TABLE_NAME = 'config')
+    `).then((rows)=>{
+      if (rows[0].count == 0) {
+        log("Config table doesn't exist, creating new one", "S");
+        return MConn.query(`CREATE TABLE \`config\` (
+            \`PK\` int(11) NOT NULL,
+            \`warnPing\` tinyint(1) DEFAULT 1,
+            \`warnTemp\` tinyint(1) DEFAULT 1,
+            \`warnBoot\` tinyint(1) DEFAULT 1,
+            \`warnDev\` tinyint(1) DEFAULT 1,
+            \`warnFlap\` tinyint(1) DEFAULT 1,
+            \`warnPhy\` tinyint(1) DEFAULT 1,
+            \`warnUPS\` tinyint(1) DEFAULT 1,
+            \`warnFibre\` tinyint(1) DEFAULT 1,
+            \`warnEmails\` text DEFAULT NULL,
+            \`Time\` timestamp NOT NULL DEFAULT current_timestamp(),
+            \`System\` varchar(256) DEFAULT NULL,
+            PRIMARY KEY (\`PK\`)
+          ) ENGINE=InnoDB DEFAULT CHARSET=latin1`)
+        .then(function() {
+          return MConn.query("ALTER TABLE `config` MODIFY `PK` int(11) NOT NULL AUTO_INCREMENT;");
+        });
+      } else {
+        log("Config table already exists", "D");
+      }
+    });
+
+    Promise.allSettled(promises).then((values) => {
+      MConn.close();
+    })
   } else {
-    log(`Running ${y}without${w} database connection`, "C");
+    log(`Running ${y}without${w} database connection, this means Argos will not record any data`, "C");
   }
 }
 
@@ -900,37 +1076,45 @@ function createConfig(error = true) {
   }
 }
 
+/* Alerts */
+
+function tempAlert(level, text, temp, system) {
+  sysConfig(system).then((config)=>{
+    transporter.sendMail({
+      from: `"${system} Temp Alerts" <sam@chilton.tv>`,
+      to: config.warnEmails,
+      subject: `${system} Temperature Alert`,
+      text: `The ${text} temperature is at a critical level! Current temperature is: ${temp}°C`
+    });
+    log(`The ${text} temperature in ${system} is at a critical level! Current temperature is: ${temp}°C, emailing: ${config.warnEmails}`, level);
+  });
+}
+
+function pingAlert(level, time, interval, system) {
+  sysConfig(system).then((config)=>{
+    transporter.sendMail({
+      from: `"${system} Ping Alerts" <sam@chilton.tv>`,
+      to: config.warnEmails,
+      subject: `${system} Ping Alert`,
+      text: `The ${system} Vision PC has not pinged the server in ${time} ${interval}. It is either offline or has lost internet`
+    });
+    log(`The ${system} Vision PC has not pinged the server in ${time} ${interval}. It is either offline or has lost internet, emailing: ${config.warnEmails}`, level);
+  });
+}
+
+function bootAlert(level, system) {
+  sysConfig(system).then((config)=>{
+    transporter.sendMail({
+      from: `"${system} Boot Alerts" <sam@chilton.tv>`,
+      to: config.warnEmails,
+      subject: `${system} Boot Alert`,
+      text: `The ${system} Vision PC has just booted`
+    });
+    log(`The ${system} Vision PC has just booted, emailing: ${config.warnEmails}`, level);
+  });
+}
+
 /* Logging */
-
-function tempAlert(level, text, temp) {
-  transporter.sendMail({
-    from: '"WBS Temp Alerts" <sam@chilton.tv>',
-    to: warnEmails,
-    subject: "WBS Temperature Alert",
-    text: `The ${text} temperature is at a critical level! Current temperature is: ${temp}°C`
-  });
-  log(`The ${text} temperature is at a critical level! Current temperature is: ${temp}°C`, level);
-}
-
-function pingAlert(level, time, interval) {
-  transporter.sendMail({
-    from: '"WBS Ping Alerts" <sam@chilton.tv>',
-    to: warnEmails,
-    subject: "WBS Ping Alert",
-    text: `The Vision PC has not pinged the server in ${time} ${interval}. It is either offline or has lost internet`
-  });
-  log(`The Vision PC has not pinged the server in ${time} ${interval}. It is either offline or has lost internet`, level);
-}
-
-function bootAlert(level) {
-  transporter.sendMail({
-    from: '"WBS Boot Alerts" <sam@chilton.tv>',
-    to: warnEmails,
-    subject: "WBS Boot Alert",
-    text: `The Vision PC has just booted`
-  });
-  log(`The Vision PC has just booted`, level);
-}
 
 function printHeader() {
   console.log("  ____   ____     __  __                _  _               ");

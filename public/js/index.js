@@ -8,16 +8,22 @@ let bootChart;
 function socketDoOpen() {
   console.log("Registering as client");
   sendData({"command":"register"});
-}
 
-function waitForPing() {
-  pingTimeout = setTimeout(function(){
-    pings[new Date()] = 0;
-    pingChart.data.datasets[0].data[new Date()] = 0;
-    pingChart.update();
-    $("#pingTime").html("Late ping?");
-    waitForPing();
-  }, 10000);
+  let to = new Date().getTime()/1000;
+  let from = to - 7200;
+  sendData({
+    "command":"get",
+    "data":"temperature",
+    "from": from,
+    "to": to
+  });
+
+  sendData({
+    "command":"get",
+    "data":"ping",
+    "from": from,
+    "to": to
+  });
 }
 
 function socketDoMessage(packet, header, payload, e) {
@@ -27,33 +33,28 @@ function socketDoMessage(packet, header, payload, e) {
     case "data":
       switch (payload.data) {
         case "ping":
-          clearTimeout(pingTimeout);
-          let datePing = new Date(payload.time);
-          pings[datePing] = payload.status;
-          if (payload.status == 1) {
-            $("#pingTime").html(datePing);
+          if (payload.replace && (payload.system == currentSystem)) {
+            let datePing = new Date(parseInt(payload.time));
+            pingChart.data.datasets[0].data = payload.points;
+            pingChart.update();
+          } else {
+            clearTimeout(pingTimeout);
+            let datePing = new Date(parseInt(payload.time));
+            pings[datePing] = payload.status;
+            pingChart.update();
           }
-          pingChart.update();
-          waitForPing();
           break;
         case "boot":
-          let dateBoot = new Date(payload.time);
+          let dateBoot = new Date(parseInt(payload.time));
           boots[dateBoot] = 1;
-          $("#bootTime").html(dateBoot);
           bootChart.update();
           break;
         case "temps":
-          let dateTemp = new Date(payload.time);
-          $("#front").html(payload.front);
-          f[dateTemp] = payload.front;
-          $("#middle").html(payload.middle);
-          m[dateTemp] = payload.middle;
-          $("#back").html(payload.back);
-          b[dateTemp] = payload.back;
-          $("#average").html(payload.average);
-          a[dateTemp] = payload.average;
-          $("#tempTime").html(dateTemp);
-          tempChart.update();
+          if (payload.replace) {
+            replaceTemps(payload.points);
+          } else {
+            addTemps(payload.points);
+          }
           break;
       }
       break;
@@ -76,51 +77,73 @@ function socketDoMessage(packet, header, payload, e) {
   }
 }
 
-function renderTempChart(f,m,b,a) {
+function addTemps(points) {
+  for (var timeStamp in points) {
+    let sets = tempChart.data.datasets.map((set)=>{return set.label});
+    let dateStamp = new Date(parseInt(timeStamp));
+    let point = points[timeStamp];
+    for (var frame in point) {
+      if (!sets.includes(frame)) {
+        let data = {};
+        data[dateStamp] = point[frame];
+        newTempDataSet(frame, data);
+      } else {
+        tempChart.data.datasets[sets.indexOf(frame)].data[dateStamp] = point[frame];
+      }
+    };
+  };
+  tempChart.update();
+}
+
+function replaceTemps(points) {
+  tempChart.data.datasets.forEach((dataSet) => {
+    dataSet.data = {};
+  });
+  for (var timeStamp in points) {
+    let sets = tempChart.data.datasets.map((set)=>{return set.label});
+    let dateStamp = new Date(parseInt(timeStamp));
+    let point = points[timeStamp];
+    for (var frame in point) {
+      if (!sets.includes(frame)) {
+        let data = {};
+        data[dateStamp] = point[frame];
+        newTempDataSet(frame, data);
+      } else {
+        tempChart.data.datasets[sets.indexOf(frame)].data[dateStamp] = point[frame];
+      }
+    };
+  };
+  tempChart.update();
+}
+
+function rand() {
+  return Math.floor((Math.random() * 155)+100);
+}
+
+function newTempDataSet(name, data) {
+  let r = rand();
+  let g = rand();
+  let b = rand();
+  let dataset = {
+    label: name,
+    data: data,
+    backgroundColor: [
+        `rgba(${r}, ${g}, ${b}, 0.2)`
+    ],
+    borderColor: [
+        `rgba(${r}, ${g}, ${b}, 1)`
+    ],
+    cubicInterpolationMode: 'monotone',
+    tension: 0.4
+  }
+  tempChart.data.datasets.push(dataset);
+  tempChart.update();
+}
+
+function renderTempChart() {
   const ctx = $('#tempChart');
   const data = {
-    datasets: [
-      {
-        label: 'Front Rack',
-        data: f,
-        backgroundColor: [
-            'rgba(54, 162, 235, 0.2)'
-        ],
-        borderColor: [
-            'rgba(54, 162, 235, 1)'
-        ]
-      },
-      {
-        label: 'Middle Rack',
-        data: m,
-        backgroundColor: [
-            'rgba(255, 206, 86, 0.2)'
-        ],
-        borderColor: [
-            'rgba(255, 206, 86, 1)'
-        ]
-      },
-      {
-        label: 'Back Rack',
-        data: b,
-        backgroundColor: [
-            'rgba(255, 99, 132, 0.2)'
-        ],
-        borderColor: [
-            'rgba(255, 99, 132, 1)'
-        ]
-      },
-      {
-        label: 'Average',
-        data: a,
-        backgroundColor: [
-            'rgba(255, 255, 255, 0.2)'
-        ],
-        borderColor: [
-            'rgba(255, 255, 255, 1)'
-        ]
-      }
-    ]
+    datasets: []
   };
   const config = {
     type: 'line',
@@ -147,16 +170,15 @@ function renderTempChart(f,m,b,a) {
     },
   };
   tempChart = new Chart(ctx, config);
-
 }
 
-function renderPingChart(pings) {
+function renderPingChart() {
   const ctx = $('#pingChart');
   const data = {
     datasets: [
       {
         label: 'Wimbledons Online',
-        data: pings,
+        data: [],
         backgroundColor: [
             'rgba(128, 255, 128, 0.2)'
         ],
@@ -191,7 +213,6 @@ function renderPingChart(pings) {
     },
   };
   pingChart = new Chart(ctx, config);
-
 }
 
 function renderBootChart(boots) {
@@ -206,7 +227,9 @@ function renderBootChart(boots) {
         ],
         borderColor: [
             'rgba(128, 255, 128, 1)'
-        ]
+        ],
+        cubicInterpolationMode: 'monotone',
+        tension: 0.4
       }
     ]
   };
@@ -248,77 +271,47 @@ $(document).ready(function() {
       let time = parseInt($trg.data("time"));
       let to = new Date().getTime()/1000;
       let from = to - time;
-      $.get(`REST/getTemps?from=${from}&to=${to}`, function(data, status){
-        data = JSON.parse(data);
-        f = {};
-        m = {};
-        b = {};
-        a = {};
-        const rF = Object.keys(data.f);
-        rF.forEach(key => {
-          if (data.f[key] != -1) {
-            f[new Date(key)] = data.f[key];
-          } else {
-            f[new Date(key)] = data.a[key];
-          }
-        });
-        const rM = Object.keys(data.m);
-        rM.forEach(key => {
-          if (data.m[key] != -1) {
-            m[new Date(key)] = data.m[key];
-          } else {
-            m[new Date(key)] = data.a[key];
-          }
-        });
-        const rB = Object.keys(data.b);
-        rB.forEach(key => {
-          if (data.b[key] != -1) {
-            b[new Date(key)] = data.b[key];
-          } else {
-            b[new Date(key)] = data.a[key];
-          }
-        });
-        const rA = Object.keys(data.a);
-        rA.forEach(key => {
-          if (data.a[key] != -1) {
-            a[new Date(key)] = data.a[key];
-          }
-        });
-        tempChart.data.datasets[0].data = f;
-        tempChart.data.datasets[1].data = m;
-        tempChart.data.datasets[2].data = b;
-        tempChart.data.datasets[3].data = a;
-        tempChart.update();
+      sendData({
+        "command":"get",
+        "data":"temperature",
+        "from": from,
+        "to": to
       });
+
     } else if ($trg.hasClass("pingBut")) {
       let time = parseInt($trg.data("time"));
       let to = new Date().getTime()/1000;
       let from = to - time;
-      $.get(`REST/getPings?from=${from}&to=${to}`, function(data, status){
-        data = JSON.parse(data);
-        pings = {};
 
-        const rP = Object.keys(data);
-        rP.forEach(key => {
-          pings[new Date(key)] = data[key];
-        });
-        pingChart.data.datasets[0].data = pings;
-        pingChart.update();
+      sendData({
+        "command":"get",
+        "data":"ping",
+        "from": from,
+        "to": to
       });
     }
   });
 
+  $("#systemSelect").change(function(event) {
+    currentSystem = event.target.value;
+    let to = new Date().getTime()/1000;
+    let from = to - 7200;
+    sendData({
+      "command":"get",
+      "data":"temperature",
+      "from": from,
+      "to": to
+    });
+
+    sendData({
+      "command":"get",
+      "data":"ping",
+      "from": from,
+      "to": to
+    });
+  });
+
   renderPingChart(pings);
   renderBootChart(boots);
-  renderTempChart(f,m,b,a);
+  renderTempChart();
 });
-
-function updateCamNum(num) {
-  CamNum = num;
-  $("#t_chngCamNum").html(num);
-  $("#t_camnum").html(num);
-  if (history.pushState) {
-    var newurl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?camera=' + num;
-    window.history.pushState({path:newurl},'',newurl);
-  }
-}
