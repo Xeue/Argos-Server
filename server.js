@@ -234,7 +234,7 @@ function startServer() {
             handleLog(hObj, pObj);
             break;
           case "get":
-            handleGet(hObj, pObj);
+            handleGet(socket, hObj, pObj);
             break;
           default:
             logObj("Unknown message", msgObj, "W");
@@ -523,13 +523,13 @@ function handleLog(header, payload) {
   }
 }
 
-function handleGet(header, payload) {
+function handleGet(socket, header, payload) {
   switch (payload.data) {
     case "temperature":
-      getTemperature(header, payload);
+      getTemperature(socket, header, payload);
       break;
     case "ping":
-      getPings(header, payload);
+      getPings(socket, header, payload);
       break;
     default:
 
@@ -665,7 +665,7 @@ function handleTemps(system, payload) {
   sendClients(makePacket(dataObj));
 }
 
-function getPings(header, payload) {
+function getPings(socket, header, payload) {
   log("Getting Pings", "D");
   let from = payload.from;
   let to = payload.to;
@@ -691,11 +691,11 @@ function getPings(header, payload) {
       "points": pings
     };
 
-    sendClients(makePacket(dataObj));
+    socket.send(makePacket(dataObj));
   });
 }
 
-function getTemperature(header, payload) {
+function getTemperature(socket, header, payload) {
   log(`Getting temps for ${header.system}`, "D");
   let from = payload.from;
   let to = payload.to;
@@ -744,7 +744,7 @@ function getTemperature(header, payload) {
       point.average = total/n;
     });
 
-    sendClients(makePacket(dataObj));
+    socket.send(makePacket(dataObj));
   });
 }
 
