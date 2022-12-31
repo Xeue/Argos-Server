@@ -12,7 +12,7 @@ import cors from 'cors';
 import express from 'express';
 import {log, logObj, logs} from 'xeue-logs';
 import {config} from 'xeue-config';
-import mariadb from 'mariadb';
+import {SQLSession} from 'xeue-sql';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -22,132 +22,6 @@ const nodemailer = require('nodemailer');
 const {version} = require('./package.json');
 const type = 'Server';
 const pingList = [];
-
-class SQLSession {
-	constructor() {
-		this.pool = mariadb.createPool({
-			host: config.get('dbHost'),
-			user: config.get('dbUser'),
-			port: config.get('dbPort'),
-			password: config.get('dbPass'),
-			connectionLimit: 5
-		});
-		this.init();
-	}
-
-	async init() {
-		log('Initialising SQL database', 'S');
-		try {
-			await this.query(`CREATE DATABASE IF NOT EXISTS ${config.get('dbDatabase')};`);
-			this.pool = mariadb.createPool({
-				host: config.get('dbHost'),
-				user: config.get('dbUser'),
-				port: config.get('dbPort'),
-				password: config.get('dbPass'),
-				database: config.get('dbDatabase'),
-				connectionLimit: 5
-			});
-		} catch (error) {
-			log(`Could not check for or create the required database: ${config.get('dbDatabase')}`, 'E');
-		}
-		try {
-			await this.tableCheck('temperature', `CREATE TABLE \`temperature\` (
-				\`PK\` int(11) NOT NULL,
-				\`frame\` text NOT NULL,
-				\`temperature\` float NOT NULL,
-				\`system\` text NOT NULL,
-				\`time\` timestamp NOT NULL DEFAULT current_timestamp(),
-				PRIMARY KEY (\`PK\`)
-			) ENGINE=InnoDB DEFAULT CHARSET=latin1`, 'PK');
-
-			await this.tableCheck('status', `CREATE TABLE \`status\` (
-				\`PK\` int(11) NOT NULL,
-				\`Type\` varchar(255) NOT NULL,
-				\`Status\` tinyint(1) NOT NULL,
-				\`Time\` timestamp NOT NULL DEFAULT current_timestamp(),
-				\`System\` varchar(256) DEFAULT NULL,
-				PRIMARY KEY (\`PK\`)
-			) ENGINE=InnoDB DEFAULT CHARSET=latin1`, 'PK');
-
-			await this.tableCheck('config', `CREATE TABLE \`config\` (
-				\`PK\` int(11) NOT NULL,
-				\`warnPing\` tinyint(1) DEFAULT 1,
-				\`warnTemp\` tinyint(1) DEFAULT 1,
-				\`warnBoot\` tinyint(1) DEFAULT 1,
-				\`warnDev\` tinyint(1) DEFAULT 1,
-				\`warnFlap\` tinyint(1) DEFAULT 1,
-				\`warnPhy\` tinyint(1) DEFAULT 1,
-				\`warnUPS\` tinyint(1) DEFAULT 1,
-				\`warnFibre\` tinyint(1) DEFAULT 1,
-				\`warnEmails\` text DEFAULT NULL,
-				\`Time\` timestamp NOT NULL DEFAULT current_timestamp(),
-				\`System\` varchar(256) DEFAULT NULL,
-				PRIMARY KEY (\`PK\`)
-			) ENGINE=InnoDB DEFAULT CHARSET=latin1`, 'PK');
-		} catch (error) {
-			log('Could not check for or create the required tables', 'E');
-		}
-		log('Tables initialised', 'S');
-	}
-
-	async tableCheck(table, tableDef, pk) {
-		const rows = await this.query(`SELECT count(*) as count
-			FROM information_schema.TABLES
-			WHERE (TABLE_SCHEMA = '${config.get('dbDatabase')}') AND (TABLE_NAME = '${table}')
-		`);
-		if (rows[0].count == 0) {
-			log(`Table: ${table} is being created`, 'S');
-			await this.query(tableDef);
-			await this.query(`ALTER TABLE \`${table}\` MODIFY \`${pk}\` int(11) NOT NULL AUTO_INCREMENT;`);
-		}
-	}
-
-	async query(query) {
-		try {
-			const conn = await this.pool.getConnection();
-			const rows = await conn.query(query);
-			conn.end();
-			return rows;
-		} catch (error) {
-			logs.error('SQL Error', error);
-		}
-	}
-
-	async insert(_values, table) { // { affectedRows: 1, insertId: 1, warningStatus: 0 }
-		try {
-			const query = `INSERT INTO ${table}(${Object.keys(_values).join(',')}) values ('${Object.values(_values).join('\',\'')}')`;
-			const result = await this.query(query);
-			return result;
-		} catch (error) {
-			logs.error('SQL Error', error);
-		}
-	}
-
-	async update(_values, _conditions, table) {
-		try {
-			let where = '';
-			switch (typeof _conditions) {
-			case 'undefined':
-				where = '';
-				break;
-			case 'string':
-				where = 'WHERE '+_conditions;
-				break;
-			case 'object':
-				where = 'WHERE '+_conditions.join(' and ');
-				break;
-			default:
-				break;
-			}
-			const values = Object.keys(_values).map(key => `${key} = ${_values[key]}`).join(',');
-			const query = `UPDATE ${table} SET ${values} ${where}`;
-			const result = await this.query(query);
-			return result;
-		} catch (error) {
-			logs.error('SQL Error', error);
-		}
-	}
-}
 
 { /* Config */
 	logs.printHeader('Argos Server');
@@ -226,7 +100,7 @@ class SQLSession {
 				'loggingLevel': config.get('loggingLevel'),
 				'debugLineNum': config.get('debugLineNum')
 			});
-			SQL.init();
+			SQL.init(tables);
 			return true;
 		}
 	});
@@ -242,11 +116,71 @@ const transporter = nodemailer.createTransport({
 	}
 });
 
-const SQL = config.get('useDb') ? new SQLSession : false;
-if (!SQL) {
-	log(`Running ${logs.y}without${logs.w} database connection, this means Argos will not record any data`, 'C');
-} else {
+const tables = [
+	{
+		name: 'temperature',
+		definition: `CREATE TABLE \`temperature\` (
+			\`PK\` int(11) NOT NULL,
+			\`frame\` text NOT NULL,
+			\`temperature\` float NOT NULL,
+			\`system\` text NOT NULL,
+			\`time\` timestamp NOT NULL DEFAULT current_timestamp(),
+			PRIMARY KEY (\`PK\`)
+		) ENGINE=InnoDB DEFAULT CHARSET=latin1`,
+		PK:'PK'
+	},
+	
+	{
+		name: 'status',
+		definition: `CREATE TABLE \`status\` (
+			\`PK\` int(11) NOT NULL,
+			\`Type\` varchar(255) NOT NULL,
+			\`Status\` tinyint(1) NOT NULL,
+			\`Time\` timestamp NOT NULL DEFAULT current_timestamp(),
+			\`System\` varchar(256) DEFAULT NULL,
+			PRIMARY KEY (\`PK\`)
+		) ENGINE=InnoDB DEFAULT CHARSET=latin1`,
+		PK:'PK'
+	},
+	
+	{
+		name: 'config',
+		definition: `CREATE TABLE \`config\` (
+			\`PK\` int(11) NOT NULL,
+			\`warnPing\` tinyint(1) DEFAULT 1,
+			\`warnTemp\` tinyint(1) DEFAULT 1,
+			\`warnBoot\` tinyint(1) DEFAULT 1,
+			\`warnDev\` tinyint(1) DEFAULT 1,
+			\`warnFlap\` tinyint(1) DEFAULT 1,
+			\`warnPhy\` tinyint(1) DEFAULT 1,
+			\`warnUPS\` tinyint(1) DEFAULT 1,
+			\`warnFibre\` tinyint(1) DEFAULT 1,
+			\`warnEmails\` text DEFAULT NULL,
+			\`Time\` timestamp NOT NULL DEFAULT current_timestamp(),
+			\`System\` varchar(256) DEFAULT NULL,
+			PRIMARY KEY (\`PK\`)
+		) ENGINE=InnoDB DEFAULT CHARSET=latin1`,
+		PK:'PK'
+	}
+]
+
+const SQL = config.get('useDb')
+	? new SQLSession(
+		config.get('dbHost'),
+		config.get('dbPort'),
+		config.get('dbUser'), 
+		config.get('dbPass'), 
+		config.get('dbDatabase'),
+		logs,
+		tables
+	)
+	: false;
+
+
+if (SQL) {
 	log(`Running ${logs.y}with${logs.w} database connection`, 'C');
+} else {
+	log(`Running ${logs.y}without${logs.w} database connection, this means Argos will not record any data`, 'C');
 }
 
 const [serverHTTP, serverWS] = startServers();
