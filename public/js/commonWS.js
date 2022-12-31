@@ -27,7 +27,7 @@ function socketConnect(inputType) {
 		connCount++;
 		console.log('Connecting to: wss://'+servers[connNum-1]);
 		currentCon = servers[connNum-1];
-		conn = new WebSocket('ws://'+servers[connNum-1]);
+		conn = new WebSocket('wss://'+servers[connNum-1]);
 
 		conn.onopen = function(e) {
 			console.log('Connection established!');
