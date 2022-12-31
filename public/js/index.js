@@ -95,9 +95,7 @@ function addTemps(points) {
 }
 
 function replaceTemps(points) {
-	tempChart.data.datasets.forEach((dataSet) => {
-		dataSet.data = {};
-	});
+	tempChart.data.datasets = [];
 	for (var timeStamp in points) {
 		let sets = tempChart.data.datasets.map((set)=>{return set.label;});
 		let dateStamp = new Date(parseInt(timeStamp));
