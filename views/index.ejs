@@ -21,7 +21,7 @@
       let systems = <%-JSON.stringify(systems)%>;
       let currentSystem = systems[0];
       const secureWS = <%=secureWS%>;
-      const version = <%=version%>;
+      const version = '<%=version%>';
 
       const rP = Object.keys(allPings).reverse();
       rP.forEach(key => {
