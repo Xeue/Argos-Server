@@ -776,7 +776,7 @@ async function getTemperature(socket, header, payload) {
 	}
 	const divisor = Math.ceil(total/1000);
 	const whereArr = dateRows.map((a)=>{
-		if (a.Number % divisor == 0) {
+		if (Number(a.Number) % divisor == 0) {
 			let data = new Date(a.time).toISOString().slice(0, 19).replace('T', ' ');
 			return `'${data}'`;
 		}
