@@ -7,7 +7,11 @@
     <link id="favicon_192" rel="icon" href="img/icon/Temp96.png" sizes="96x96">
     <title><%= serverName %> – Monitoring</title>
     <link href="css/fonts.css" rel="stylesheet" type="text/css">
-    <script type="text/javascript" src="js/jQuery.js"></script>
+    <link href="css/index.css" rel="stylesheet" type="text/css">
+    <link href="lib/bootstrap.min.css" rel="stylesheet" type="text/css">
+    <link href="lib/datetimepicker.css" rel="stylesheet">
+    <script type="text/javascript" src="lib/jQuery.js"></script>
+    <script type="text/javascript" src="lib/bootstrap.min.js"></script>
     <script type="text/javascript">
       let servers = ["<%= host %>"];
       let pings = {};
@@ -16,6 +20,8 @@
       let allBoots = <%-JSON.stringify(boots)%>;
       let systems = <%-JSON.stringify(systems)%>;
       let currentSystem = systems[0];
+      const secureWS = <%=secureWS%>;
+      const version = <%=version%>;
 
       const rP = Object.keys(allPings).reverse();
       rP.forEach(key => {
@@ -29,54 +35,77 @@
     </script>
     <script type="text/javascript" src="js/commonWS.js"></script>
     <script type="text/javascript" src="js/index.js"></script>
-    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.8.0/chart.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@^3"></script>
-    <script src="https://cdn.jsdelivr.net/npm/moment@^2"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment@^1"></script>
-    <link rel="stylesheet" href="css/index.css">
+    <script type="text/javascript" src="lib/chart.js"></script>
+    <script type="text/javascript" src="lib/moment.js"></script>
+    <script type="text/javascript" src="lib/chart-adapter-moment.js"></script>
+    <script type="text/javascript" src="lib/datetimepicker.js"></script>
   </head>
-  <body>
-    <nav>
-      <select id="systemSelect">
+  <body class="bg-dark">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-success px-2">
+      <a class="navbar-brand" href="#">
+        <img src="img/icon/temp.svg" width="30" height="30" class="d-inline-block align-top" alt="">
+        Argos
+      </a>
+      <select id="systemSelect" class="form-select w-auto">
+        <option selected disabled hidden value="Select System">Select System</option>
         <% systems.forEach((system)=>{ %>
           <option value="<%=system%>"><%=system%></option>
         <% }) %>
       </select>
     </nav>
     <main id="t_indicatior">
-      <section class="panel">
-        <h1>Number of Online Vision PCs</h1>
+      <section class="panel text-light">
+        <h1>Internet Connection</h1>
         <canvas id="pingChart"></canvas>
         <div class="buttonBox">
-          <button class="pingBut" data-time="2419200">Last Month</button>
-          <button class="pingBut" data-time="604800">Last Week</button>
-          <button class="pingBut" data-time="172800">2 Days</button>
-          <button class="pingBut" data-time="86400">1 Day</button>
-          <button class="pingBut" data-time="43200">12 Hours</button>
-          <button class="pingBut" data-time="21600">6 Hours</button>
-          <button class="pingBut" data-time="7200">2 Hours</button>
-          <button class="pingBut" data-time="1800">30 Mins</button>
+          <div>
+            Select from
+            <button id="pingFromPick" class="btn btn-secondary btn-sm"></button>
+            <input type="hidden" id="pingFrom" value="">
+            until
+            <button id="pingToPick" class="btn btn-secondary btn-sm"></button>
+            <input type="hidden" id="pingTo" value="">
+          </div>
+          <div class="pt-1">
+              Or the last
+              <button class="pingBut btn btn-secondary btn-sm" data-time="2419200">Month</button>
+              <button class="pingBut btn btn-secondary btn-sm" data-time="604800">Week</button>
+              <button class="pingBut btn btn-secondary btn-sm" data-time="86400">Day</button>
+              <button class="pingBut btn btn-secondary btn-sm" data-time="43200">12 Hours</button>
+              <button class="pingBut btn btn-secondary btn-sm" data-time="21600">6 Hours</button>
+              <button class="pingBut btn btn-secondary btn-sm" data-time="7200">2 Hours</button>
+          </div>
         </div>
         <pre class="infoBox" id="pingTime"><%= ping?.Time %></pre>
       </section>
-      <section class="panel">
-        <h1>How Hot it is</h1>
+      <section class="panel text-light">
+        <h1>IQ Frame Temperatures</h1>
         <canvas id="tempChart"></canvas>
         <div class="buttonBox">
-          <button class="tempBut" data-time="2419200">Last Month</button>
-          <button class="tempBut" data-time="604800">Last Week</button>
-          <button class="tempBut" data-time="172800">2 Days</button>
-          <button class="tempBut" data-time="86400">1 Day</button>
-          <button class="tempBut" data-time="43200">12 Hours</button>
-          <button class="tempBut" data-time="21600">6 Hours</button>
-          <button class="tempBut" data-time="7200">2 Hours</button>
+          <div>
+            Select from
+            <button id="tempFromPick" class="btn btn-secondary btn-sm"></button>
+            <input type="hidden" id="tempFrom" value="">
+            until
+            <button id="tempToPick" class="btn btn-secondary btn-sm"></button>
+            <input type="hidden" id="tempTo" value="">
+          </div>
+          <div class="pt-1">
+              Or the last
+              <button class="tempBut btn btn-secondary btn-sm" data-time="2419200">Month</button>
+              <button class="tempBut btn btn-secondary btn-sm" data-time="604800">Week</button>
+              <button class="tempBut btn btn-secondary btn-sm" data-time="86400">Day</button>
+              <button class="tempBut btn btn-secondary btn-sm" data-time="43200">12 Hours</button>
+              <button class="tempBut btn btn-secondary btn-sm" data-time="21600">6 Hours</button>
+              <button class="tempBut btn btn-secondary btn-sm" data-time="7200">2 Hours</button>
+          </div>
         </div>
         <div class="infoBox">
           <div>Updated: <span id="tempTime"></span></div>
         </div>
       </section>
       <section class="panel">
-        <h1>Times the Vision PC was turned on</h1>
+        <h1>Argos Starts</h1>
         <canvas id="bootChart"></canvas>
         <pre class="infoBox" id="bootTime"><%= boot?.Time %></pre>
       </section>

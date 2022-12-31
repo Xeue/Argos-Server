@@ -12,118 +12,140 @@ import cors from 'cors';
 import express from 'express';
 import {log, logObj, logs} from 'xeue-logs';
 import {config} from 'xeue-config';
+import mariadb from 'mariadb';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const require = createRequire(import.meta.url);
-const mysql = require('mysql');
 const nodemailer = require('nodemailer');
 
 const {version} = require('./package.json');
 const type = 'Server';
 const pingList = [];
-const SQLLogging = false;
-let SQLConnections = 0;
 
 class SQLSession {
 	constructor() {
-		this.connection = mysql.createPool({
-			'connectionLimit' : 10,
-			'host': config.get('dbHost'),
-			'user': config.get('dbUser'),
-			'password': config.get('dbPass'),
-			'database': config.get('dbDatabase')
+		this.pool = mariadb.createPool({
+			host: config.get('dbHost'),
+			user: config.get('dbUser'),
+			port: config.get('dbPort'),
+			password: config.get('dbPass'),
+			connectionLimit: 5
 		});
-		SQLConnections++;
-		if (SQLLogging) {
-			log(`${logs.g}Connecting${logs.w} to SQL database, current connections: ${logs.y}${SQLConnections}${logs.w}`, 'S');
+		this.init();
+	}
+
+	async init() {
+		log('Initialising SQL database', 'S');
+		try {
+			await this.query(`CREATE DATABASE IF NOT EXISTS ${config.get('dbDatabase')};`);
+			this.pool = mariadb.createPool({
+				host: config.get('dbHost'),
+				user: config.get('dbUser'),
+				port: config.get('dbPort'),
+				password: config.get('dbPass'),
+				database: config.get('dbDatabase'),
+				connectionLimit: 5
+			});
+		} catch (error) {
+			log(`Could not check for or create the required database: ${config.get('dbDatabase')}`, 'E');
+		}
+		try {
+			await this.tableCheck('temperature', `CREATE TABLE \`temperature\` (
+				\`PK\` int(11) NOT NULL,
+				\`frame\` text NOT NULL,
+				\`temperature\` float NOT NULL,
+				\`system\` text NOT NULL,
+				\`time\` timestamp NOT NULL DEFAULT current_timestamp(),
+				PRIMARY KEY (\`PK\`)
+			) ENGINE=InnoDB DEFAULT CHARSET=latin1`, 'PK');
+
+			await this.tableCheck('status', `CREATE TABLE \`status\` (
+				\`PK\` int(11) NOT NULL,
+				\`Type\` varchar(255) NOT NULL,
+				\`Status\` tinyint(1) NOT NULL,
+				\`Time\` timestamp NOT NULL DEFAULT current_timestamp(),
+				\`System\` varchar(256) DEFAULT NULL,
+				PRIMARY KEY (\`PK\`)
+			) ENGINE=InnoDB DEFAULT CHARSET=latin1`, 'PK');
+
+			await this.tableCheck('config', `CREATE TABLE \`config\` (
+				\`PK\` int(11) NOT NULL,
+				\`warnPing\` tinyint(1) DEFAULT 1,
+				\`warnTemp\` tinyint(1) DEFAULT 1,
+				\`warnBoot\` tinyint(1) DEFAULT 1,
+				\`warnDev\` tinyint(1) DEFAULT 1,
+				\`warnFlap\` tinyint(1) DEFAULT 1,
+				\`warnPhy\` tinyint(1) DEFAULT 1,
+				\`warnUPS\` tinyint(1) DEFAULT 1,
+				\`warnFibre\` tinyint(1) DEFAULT 1,
+				\`warnEmails\` text DEFAULT NULL,
+				\`Time\` timestamp NOT NULL DEFAULT current_timestamp(),
+				\`System\` varchar(256) DEFAULT NULL,
+				PRIMARY KEY (\`PK\`)
+			) ENGINE=InnoDB DEFAULT CHARSET=latin1`, 'PK');
+		} catch (error) {
+			log('Could not check for or create the required tables', 'E');
+		}
+		log('Tables initialised', 'S');
+	}
+
+	async tableCheck(table, tableDef, pk) {
+		const rows = await this.query(`SELECT count(*) as count
+			FROM information_schema.TABLES
+			WHERE (TABLE_SCHEMA = '${config.get('dbDatabase')}') AND (TABLE_NAME = '${table}')
+		`);
+		if (rows[0].count == 0) {
+			log(`Table: ${table} is being created`, 'S');
+			await this.query(tableDef);
+			await this.query(`ALTER TABLE \`${table}\` MODIFY \`${pk}\` int(11) NOT NULL AUTO_INCREMENT;`);
 		}
 	}
-	query(sql, args) {
-		return new Promise( ( resolve, reject ) => {
-			this.connection.query( sql, args, ( err, rows ) => {
-				if (err) {
-					logObj('SQL Error', err, 'E');
-					return reject(err);
-				}
-				resolve( rows );
-				if (SQLLogging) {
-					logObj('Data from DB', rows, 'A');
-				}
-			} );
-		} ).catch(error => {
-			logObj('SQL Error', error, 'E');
-		});
-	}
-	insert(object, table, args) {
-		return new Promise( ( resolve, reject ) => {
-			let keys = [];
-			let values = [];
-			for (var variable in object) {
-				if (object.hasOwnProperty(variable)) {
-					keys.push(variable);
-					values.push(`'${object[variable]}'`);
-				}
-			}
-			let sql = `INSERT INTO \`${table}\` (${keys.join(',')}) VALUES (${values.join(',')})`;
-			this.connection.query( sql, args, (err, result) => {
-				if (err) {
-					logObj('SQL Error', err, 'E');
-					return reject(err);
-				}
-				resolve( result );
-				if (SQLLogging) {
-					logObj('Inserted into DB', result, 'A');
-				}
-			} );
-		} );
-	}
-	update(object, where, table, args) {
-		return new Promise( ( resolve, reject ) => {
 
-			let values = [];
-			for (var variable in object) {
-				if (object.hasOwnProperty(variable)) {
-					values.push(`\`${variable}\`='${object[variable]}'`);
-				}
-			}
-			let sql = `UPDATE \`${table}\` SET ${values.join(',')}`;
-			if (typeof where !== 'undefined') {
-				let wheres = [];
-				for (var col in where) {
-					if (where.hasOwnProperty(col)) {
-						wheres.push(`\`${col}\`='${where[col]}'`);
-					}
-				}
-				sql += ' WHERE '+wheres.join(' AND ');
-			}
-
-			this.connection.query( sql, args, (err, result) => {
-				if (err) {
-					logObj('SQL Error', err, 'E');
-					return reject(err);
-				}
-				resolve( result );
-				if (SQLLogging) {
-					logObj('Updated DB', result, 'A');
-				}
-			} );
-		} );
+	async query(query) {
+		try {
+			const conn = await this.pool.getConnection();
+			const rows = await conn.query(query);
+			conn.end();
+			return rows;
+		} catch (error) {
+			logs.error('SQL Error', error);
+		}
 	}
-	close() {
-		return new Promise( ( resolve, reject ) => {
-			SQLConnections--;
-			if (SQLLogging) {
-				log(`${logs.r}Closing${logs.w} connection to SQL database, current connections: ${logs.y}${SQLConnections}${logs.w}`, 'S');
+
+	async insert(_values, table) { // { affectedRows: 1, insertId: 1, warningStatus: 0 }
+		try {
+			const query = `INSERT INTO ${table}(${Object.keys(_values).join(',')}) values ('${Object.values(_values).join('\',\'')}')`;
+			const result = await this.query(query);
+			return result;
+		} catch (error) {
+			logs.error('SQL Error', error);
+		}
+	}
+
+	async update(_values, _conditions, table) {
+		try {
+			let where = '';
+			switch (typeof _conditions) {
+			case 'undefined':
+				where = '';
+				break;
+			case 'string':
+				where = 'WHERE '+_conditions;
+				break;
+			case 'object':
+				where = 'WHERE '+_conditions.join(' and ');
+				break;
+			default:
+				break;
 			}
-			this.connection.end( err => {
-				if (err) {
-					logObj('SQL Error', err, 'E');
-					return reject(err);
-				}
-				resolve();
-			} );
-		} );
+			const values = Object.keys(_values).map(key => `${key} = ${_values[key]}`).join(',');
+			const query = `UPDATE ${table} SET ${values} ${where}`;
+			const result = await this.query(query);
+			return result;
+		} catch (error) {
+			logs.error('SQL Error', error);
+		}
 	}
 }
 
@@ -135,10 +157,6 @@ class SQLSession {
 	config.require('host', [], 'What url/IP is the server connected to from');
 	config.require('serverName', [], 'Please name this server');
 	config.require('loggingLevel', {'A':'All', 'D':'Debug', 'W':'Warnings', 'E':'Errors'}, 'Set logging level');
-	{
-		config.require('debugLineNum', {true: 'Yes', false: 'No'}, 'Show line numbers in logs', ['loggingLevel', 'A']);
-		config.require('printPings', {true: 'Yes', false: 'No'}, 'Print ping messages', ['loggingLevel', 'A']);
-	}
 	config.require('createLogFile', {true: 'Yes', false: 'No'}, 'Save logs to local file');
 	config.require('warnTemp', [], 'Temperature to warn at');
 	config.require('sendWarnEmails', {true: 'Yes', false: 'No'}, 'Send emails when warning temperatures are reached');
@@ -158,6 +176,12 @@ class SQLSession {
 		config.require('dbDatabase', [], 'Database name', ['useDb', true]);
 		config.require('dbHost', [], 'Database host address', ['useDb', true]);
 	}
+	config.require('advancedMode', {true: 'Yes', false: 'No'}, 'Show advanced config options?');
+	{
+		config.require('debugLineNum', {true: 'Yes', false: 'No'}, 'Show line numbers in logs', ['advancedMode', true]);
+		config.require('printPings', {true: 'Yes', false: 'No'}, 'Print ping messages', ['advancedMode', true]);
+		config.require('secureWS', {true: 'WSS', false: 'WS'}, 'Use WSS or WS', ['advancedMode', true]);
+	}
 
 	config.default('port', 8080);
 	config.default('host', 'localhost');
@@ -173,6 +197,8 @@ class SQLSession {
 	config.default('dbUser', 'argos');
 	config.default('dbDatabase', 'argos');
 	config.default('dbHost', 'localhost');
+	config.default('advancedMode', false);
+	config.default('secureWS', true);
 
 	if (!await config.fromFile(__dirname + '/config.conf')) {
 		await config.fromCLI(__dirname + '/config.conf');
@@ -200,78 +226,10 @@ class SQLSession {
 				'loggingLevel': config.get('loggingLevel'),
 				'debugLineNum': config.get('debugLineNum')
 			});
+			SQL.init();
 			return true;
 		}
 	});
-
-	if (config.get('useDb')) {
-		try {
-			const SQL = new SQLSession();
-			const checkTemps = await SQL.query(`SELECT count(*) as count FROM information_schema.TABLES WHERE (TABLE_SCHEMA = '${config.get('dbDatabase')}') AND (TABLE_NAME = 'temperature')`);
-			if (checkTemps[0].count == 0) {
-				log('Temperature table doesn\'t exist, creating new one', 'S');
-				await SQL.query(`CREATE TABLE \`temperature\` (
-					\`PK\` int(11) NOT NULL,
-					\`frame\` text NOT NULL,
-					\`temperature\` float NOT NULL,
-					\`system\` text NOT NULL,
-					\`time\` timestamp NOT NULL DEFAULT current_timestamp(),
-					PRIMARY KEY (\`PK\`)
-				) ENGINE=InnoDB DEFAULT CHARSET=latin1`);
-				await SQL.query('ALTER TABLE `temperature` MODIFY `PK` int(11) NOT NULL AUTO_INCREMENT;');
-			} else {
-				log('Temperature table already exists', 'D');
-			}
-	
-			const statusCheck = await SQL.query(`SELECT count(*) as count FROM information_schema.TABLES WHERE (TABLE_SCHEMA = '${config.get('dbDatabase')}') AND (TABLE_NAME = 'status')`);
-			if (statusCheck[0].count == 0) {
-				log('Status table doesn\'t exist, creating new one', 'S');
-				await SQL.query(`CREATE TABLE \`status\` (
-					\`PK\` int(11) NOT NULL,
-					\`Type\` varchar(255) NOT NULL,
-					\`Status\` tinyint(1) NOT NULL,
-					\`Time\` timestamp NOT NULL DEFAULT current_timestamp(),
-					\`System\` varchar(256) DEFAULT NULL,
-					PRIMARY KEY (\`PK\`)
-				) ENGINE=InnoDB DEFAULT CHARSET=latin1`);
-				await SQL.query('ALTER TABLE `status` MODIFY `PK` int(11) NOT NULL AUTO_INCREMENT;');
-			} else {
-				log('Status table already exists', 'D');
-			}
-	
-			const configCheck = await SQL.query(`SELECT count(*) as count FROM information_schema.TABLES WHERE (TABLE_SCHEMA = '${config.get('dbDatabase')}') AND (TABLE_NAME = 'config')`);
-			if (configCheck[0].count == 0) {
-				log('Config table doesn\'t exist, creating new one', 'S');
-				await SQL.query(`CREATE TABLE \`config\` (
-					\`PK\` int(11) NOT NULL,
-					\`warnPing\` tinyint(1) DEFAULT 1,
-					\`warnTemp\` tinyint(1) DEFAULT 1,
-					\`warnBoot\` tinyint(1) DEFAULT 1,
-					\`warnDev\` tinyint(1) DEFAULT 1,
-					\`warnFlap\` tinyint(1) DEFAULT 1,
-					\`warnPhy\` tinyint(1) DEFAULT 1,
-					\`warnUPS\` tinyint(1) DEFAULT 1,
-					\`warnFibre\` tinyint(1) DEFAULT 1,
-					\`warnEmails\` text DEFAULT NULL,
-					\`Time\` timestamp NOT NULL DEFAULT current_timestamp(),
-					\`System\` varchar(256) DEFAULT NULL,
-					PRIMARY KEY (\`PK\`)
-				) ENGINE=InnoDB DEFAULT CHARSET=latin1`);
-				await SQL.query('ALTER TABLE `config` MODIFY `PK` int(11) NOT NULL AUTO_INCREMENT;');
-			} else {
-				log('Config table already exists', 'D');
-			}
-	
-			SQL.close();
-			log(`Setting up ${logs.y}with${logs.w} database connection`, 'C');
-		} catch (error) {
-			log('Database Connection error, aborting, this means Argos will not record any data', 'E');
-			config.set('useDb', false);
-		}
-
-	} else {
-		log(`Running ${logs.y}without${logs.w} database connection, this means Argos will not record any data`, 'C');
-	}
 }
 
 const transporter = nodemailer.createTransport({
@@ -283,6 +241,13 @@ const transporter = nodemailer.createTransport({
 		'pass': config.get('emailPass')
 	}
 });
+
+const SQL = config.get('useDb') ? new SQLSession : false;
+if (!SQL) {
+	log(`Running ${logs.y}without${logs.w} database connection, this means Argos will not record any data`, 'C');
+} else {
+	log(`Running ${logs.y}with${logs.w} database connection`, 'C');
+}
 
 const [serverHTTP, serverWS] = startServers();
 startLoops();
@@ -499,9 +464,9 @@ async function doLatePing(system) {
 			pingAlert('W', system.latePings/6, 'minutes', system.name);
 		}
 	}
-	const SQL = new SQLSession();
+	
 	await SQL.insert({'Type':'Ping', 'Status':0, 'System':system.name}, 'status');
-	SQL.close();
+	
 	sendClients(makePacket({
 		'command':'data',
 		'data':'ping',
@@ -633,34 +598,42 @@ function handleGet(socket, header, payload) {
 async function handleRoot(request, response) {
 	log('Serving index page', 'A');
 	response.header('Content-type', 'text/html');
-	const SQL = new SQLSession();
+	
 
 	const systemsRows = await SQL.query('SELECT `System` AS \'Name\' FROM `status` GROUP BY `System`;');
-	const systems = systemsRows.map(row => row.Name);
+	const systems = typeof systemsRows === 'undefined' ? [] : systemsRows.map(row => row.Name);
 
-	const [ping] = await SQL.query('SELECT * FROM `status` WHERE `Type`=\'Ping\' AND `Status` = 1 ORDER BY `PK` DESC LIMIT 1;');
+	const pingRows = await SQL.query('SELECT * FROM `status` WHERE `Type`=\'Ping\' AND `Status` = 1 ORDER BY `PK` DESC LIMIT 1;');
+	const ping = typeof pingRows === 'undefined' ? [] : [pingRows];
 
 	const pingsRows = await SQL.query('SELECT * FROM `status` WHERE `Type`=\'Ping\' AND `PK` mod 10 = 0 ORDER BY `PK` DESC LIMIT 144;');
 	const pings = {};
-	pingsRows.forEach(row => {
-		pings[row.Time] = row.Status;
-	});
+	if (typeof pingRows !== 'undefined') {
+		pingsRows.forEach(row => {
+			pings[row.Time] = row.Status;
+		});
+	}
 
 	const bootRows = await SQL.query('SELECT * FROM `status` WHERE `Type`=\'Boot\' ORDER BY `PK` DESC;');
+	const boot = typeof bootRows === 'undefined' ? [] : [bootRows];
 	const boots = {};
-	bootRows.forEach(row => {
-		boots[row.Time] = 1;
-	});
+	if (typeof bootRows !== 'undefined') {
+		bootRows.forEach(row => {
+			boots[row.Time] = 1;
+		});
+	}
 
-	SQL.close();
+	
 	response.render('index', {
 		host: config.get('host'),
 		serverName: config.get('serverName'),
 		pings: pings,
 		ping: ping,
 		boots: boots,
-		boot: bootRows[0],
-		systems: systems.filter(Boolean)
+		boot: boot,
+		systems: systems.filter(Boolean),
+		version: version,
+		secureWS: config.get('secureWS')
 	});
 }
 
@@ -670,7 +643,7 @@ async function handlePing(system) {
 	if (!systems.includes(system)) {
 		const sysConfig = await systemConfig(system);
 		if (typeof sysConfig == 'undefined') {
-			const SQL = new SQLSession();
+			
 			SQL.insert({
 				'warnPing': config.get('sendWarnEmails'),
 				'warnTemp': config.get('sendWarnEmails'),
@@ -682,7 +655,7 @@ async function handlePing(system) {
 				'warnFibre': config.get('sendWarnEmails'),
 				'warnEmails': config.get('warnEmails'),
 				'System': system
-			}, 'config').then(()=>{SQL.close();});
+			}, 'config').then(()=>{});
 		}
 		pingList.push({
 			name: system,
@@ -691,9 +664,9 @@ async function handlePing(system) {
 		});
 	}
 	resetPings(system);
-	const SQL = new SQLSession();
+	
 	await SQL.insert({'Type':'Ping', 'Status':1, 'System':system}, 'status');
-	SQL.close();
+	
 	sendClients(makePacket({
 		'command':'data',
 		'data':'ping',
@@ -707,9 +680,9 @@ async function handlePing(system) {
 function handleBoot(system) {
 	log('Recieved a boot', 'D');
 	bootAlert('W', system);
-	const SQL = new SQLSession();
+	
 	SQL.insert({'Type':'Boot', 'Status':1, 'System':system}, 'status').then(()=>{
-		SQL.close();
+		
 		sendClients(makePacket({
 			'command':'data',
 			'data':'boot',
@@ -722,7 +695,7 @@ function handleBoot(system) {
 function handleTemps(system, payload) {
 	log('Recieved some temps', 'D');
 
-	const SQL = new SQLSession();
+	
 	const promises = [];
 	let average = 0;
 	const timeStamp = new Date().getTime();
@@ -755,99 +728,89 @@ function handleTemps(system, payload) {
 	dataObj.points[timeStamp].average = average;
 
 	Promise.allSettled(promises).then(() => {
-		SQL.close();
+		
 	});
 
 	sendClients(makePacket(dataObj));
 }
 
-function getPings(socket, header, payload) {
-	log('Getting Pings', 'D');
-	let from = payload.from;
-	let to = payload.to;
-	const SQL = new SQLSession();
-	const countQuery = `SELECT count(\`PK\`) AS 'total' FROM \`status\` WHERE time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `;
-	SQL.query(countQuery).then((rows)=>{
-		let total = rows[0].total;
-		let divisor = Math.ceil(total/1000);
-		let query = `SELECT * FROM \`status\` WHERE (\`Type\`='Ping' AND MOD(\`PK\`, ${divisor}) = 0 OR \`Status\`='0') AND Time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `;
-		return SQL.query(query);
-	}).then((rows)=>{
-		let pings = {};
-		rows.forEach((row) => {
-			pings[row.Time] = row.Status;
-		});
-		SQL.close();
-
-		let dataObj = {
-			'command': 'data',
-			'data': 'ping',
-			'replace': true,
-			'system': header.system,
-			'points': pings
-		};
-
-		socket.send(JSON.stringify(makePacket(dataObj)));
+async function getPings(socket, header, payload) {
+	log(`Getting pings for ${header.system}`, 'D');
+	const from = Number(payload.from);
+	const to = Number(payload.to);
+	
+	const countRows = await SQL.query(`SELECT count(\`PK\`) AS 'total' FROM \`status\` WHERE time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `);
+	const total = typeof countRows[0].total == 'number' ? countRows[0].total : 0;
+	const divisor = Math.ceil(total/1000);
+	const pingRows = await SQL.query(`SELECT * FROM \`status\` WHERE (\`Type\`='Ping' AND MOD(\`PK\`, ${divisor}) = 0 OR \`Status\`='0') AND Time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `);
+	let pings = {};
+	pingRows.forEach((row) => {
+		pings[row.Time] = row.Status;
 	});
+
+	socket.send(JSON.stringify(makePacket({
+		'command': 'data',
+		'data': 'ping',
+		'replace': true,
+		'system': header.system,
+		'points': pings
+	})));
 }
 
-function getTemperature(socket, header, payload) {
-	log(`Getting temps for ${header.system}`, 'D');
-	let from = payload.from;
-	let to = payload.to;
-	const SQL = new SQLSession();
-	let dateQuery = `SELECT ROW_NUMBER() OVER (ORDER BY PK) AS Number, \`PK\`, \`time\` FROM \`temperature\` WHERE time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' GROUP BY \`time\`; `;
-	SQL.query(dateQuery).then((grouped)=>{
-		let divisor = Math.ceil(grouped.length/1000);
-		let whereArr = grouped.map((a)=>{
-			if (a.Number % divisor == 0) {
-				let data = new Date(a.time).toISOString().slice(0, 19).replace('T', ' ');
-				return `'${data}'`;
-			}
-		}).filter(Boolean);
-		let whereString = whereArr.join(',');
-		let query;
-		if (whereString == '') {
-			query = `SELECT * FROM \`temperature\` WHERE \`system\` = '${header.system}' ORDER BY \`PK\` ASC LIMIT 1; `;
-		} else {
-			query = `SELECT * FROM \`temperature\` WHERE time IN (${whereString}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `;
+async function getTemperature(socket, header, payload) {
+	log(`Getting temperatures for ${header.system}`, 'D');
+	const from = Number(payload.from);
+	const to = Number(payload.to);
+	
+	const dateRows = await SQL.query(`SELECT ROW_NUMBER() OVER (ORDER BY PK) AS Number, \`PK\`, \`time\` FROM \`temperature\` WHERE time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' GROUP BY \`time\`; `);
+	const divisor = Math.ceil(dateRows.length/1000);
+	const whereArr = dateRows.map((a)=>{
+		if (a.Number % divisor == 0) {
+			let data = new Date(a.time).toISOString().slice(0, 19).replace('T', ' ');
+			return `'${data}'`;
 		}
-		return SQL.query(query);
-	}).then((rows)=>{
-		SQL.close();
-		let dataObj = {
-			'command':'data',
-			'data':'temps',
-			'system':header.system,
-			'replace': true,
-			'points':{}
-		};
+	}).filter(Boolean);
+	const whereString = whereArr.join(',');
+	let query;
+	if (whereString == '') {
+		query = `SELECT * FROM \`temperature\` WHERE \`system\` = '${header.system}' ORDER BY \`PK\` ASC LIMIT 1; `;
+	} else {
+		query = `SELECT * FROM \`temperature\` WHERE time IN (${whereString}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `;
+	}
 
-		rows.forEach(row => {
-			let timestamp = row.time.getTime();
-			if (!dataObj.points[timestamp]) {
-				dataObj.points[timestamp] = {};
-			}
-			let point = dataObj.points[timestamp];
-			point[row.frame] = row.temperature;
+	const tempRows = await SQL.query(query);
+	const points = {};
 
-			delete point.average;
-			const n = Object.keys(point).length;
-			const values = Object.values(point);
-			const total = values.reduce((accumulator, value) => {
-				return accumulator + value;
-			}, 0);
-			point.average = total/n;
-		});
+	tempRows.forEach(row => {
+		let timestamp = row.time.getTime();
+		if (!points[timestamp]) {
+			points[timestamp] = {};
+		}
+		let point = points[timestamp];
+		point[row.frame] = row.temperature;
 
-		socket.send(JSON.stringify(makePacket(dataObj)));
+		delete point.average;
+		const n = Object.keys(point).length;
+		const values = Object.values(point);
+		const total = values.reduce((accumulator, value) => {
+			return accumulator + value;
+		}, 0);
+		point.average = total/n;
 	});
+
+	socket.send(JSON.stringify(makePacket({
+		'command':'data',
+		'data':'temps',
+		'system':header.system,
+		'replace': true,
+		'points': points
+	})));
 }
 
 /* Config */
 
 async function systemConfig(system) {
-	const SQL = new SQLSession();
+	
 	const [systemConfig] = await SQL.query(`SELECT * FROM \`config\` WHERE \`system\` = '${system}'; `);
 	return systemConfig;
 }

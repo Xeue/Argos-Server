@@ -5,14 +5,13 @@ var conn;
 var connCount = 0;
 var connNum = 1;
 var forceShut = 0;
-var version = '1.0';
 let loadTime = new Date().getTime();
 let myID;
 let type;
 
 $('main').addClass('disconnected');
 
-function socketConnect(inputType) {
+function socketConnect(inputType, secureWS) {
 	type = inputType;
 	myID = `${type.charAt(0)}_${loadTime}_${version}`;
 	if (connecting == 0) {
@@ -25,9 +24,10 @@ function socketConnect(inputType) {
 			connCount = 0;
 		}
 		connCount++;
-		console.log('Connecting to: wss://'+servers[connNum-1]);
+		const protocol = secureWS ? 'wss' : 'ws';
+		console.log(`Connecting to: ${protocol}://${servers[connNum-1]}`);
 		currentCon = servers[connNum-1];
-		conn = new WebSocket('wss://'+servers[connNum-1]);
+		conn = new WebSocket(`${protocol}://${servers[connNum-1]}`);
 
 		conn.onopen = function(e) {
 			console.log('Connection established!');
@@ -56,7 +56,7 @@ function socketConnect(inputType) {
 		conn.onclose = function(e) {
 			if (forceShut == 0) {
 				console.log('Connection failed');
-				setTimeout(function(){socketConnect(inputType);}, 500);
+				setTimeout(function(){socketConnect(inputType, secureWS);}, 500);
 			}
 			connecting = 0;
 			forceShut = 0;

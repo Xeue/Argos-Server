@@ -159,9 +159,9 @@ function renderTempChart() {
 					type: 'time',
 					time: {
 						displayFormats: {
-							second: 'MM/DD/yy H:mm:ss',
-							minute: 'MM/DD/yy H:mm:ss',
-							hour: 'MM/DD/yy H:mm:ss'
+							second: 'YY/MM/DD H:mm',
+							minute: 'YY/MM/DD H:mm',
+							hour: 'YY/MM/DD H:mm'
 						}
 					}
 				}
@@ -176,7 +176,7 @@ function renderPingChart() {
 	const data = {
 		datasets: [
 			{
-				label: 'Wimbledons Online',
+				label: 'Network Status',
 				data: [],
 				backgroundColor: [
 					'rgba(128, 255, 128, 0.2)'
@@ -202,9 +202,9 @@ function renderPingChart() {
 					type: 'time',
 					time: {
 						displayFormats: {
-							second: 'MM/DD/yy H:mm:ss',
-							minute: 'MM/DD/yy H:mm:ss',
-							hour: 'MM/DD/yy H:mm:ss'
+							second: 'YY/MM/DD H:mm',
+							minute: 'YY/MM/DD H:mm',
+							hour: 'YY/MM/DD H:mm'
 						}
 					}
 				}
@@ -219,7 +219,7 @@ function renderBootChart(boots) {
 	const data = {
 		datasets: [
 			{
-				label: 'Boots',
+				label: 'ARgos boot',
 				data: boots,
 				backgroundColor: [
 					'rgba(128, 255, 128, 0.2)'
@@ -247,9 +247,9 @@ function renderBootChart(boots) {
 					type: 'time',
 					time: {
 						displayFormats: {
-							second: 'MM/DD/yy H:mm:ss',
-							minute: 'MM/DD/yy H:mm:ss',
-							hour: 'MM/DD/yy H:mm:ss'
+							second: 'YY/MM/DD H:mm',
+							minute: 'YY/MM/DD H:mm',
+							hour: 'YY/MM/DD H:mm'
 						}
 					}
 				}
@@ -261,7 +261,7 @@ function renderBootChart(boots) {
 }
 
 
-socketConnect('Browser');
+socketConnect('Browser', secureWS);
 
 $(document).ready(function() {
 	$(document).click(function(e) {
@@ -289,6 +289,42 @@ $(document).ready(function() {
 				'to': to
 			});
 		}
+	});
+
+	$(document).change(function(e) {
+		const $trg = $(e.target);
+		if ($trg.is('#tempFrom') || $trg.is('#tempTo')) {
+			sendData({
+				'command':'get',
+				'data':'temperature',
+				'from': parseInt($('#tempFrom').val()),
+				'to': parseInt($('#tempTo').val())
+			});
+		} else if ($trg.is('#pingFrom') || $trg.is('#pingTo')) {
+			sendData({
+				'command':'get',
+				'data':'ping',
+				'from': parseInt($('#pingFrom').val()),
+				'to': parseInt($('#pingTo').val())
+			});
+		}
+	});
+
+	$('#tempFromPick').dateTimePicker({
+		dateFormat: 'YYYY-MM-DD HH:mm',
+		title: 'From'
+	});
+	$('#tempToPick').dateTimePicker({
+		dateFormat: 'YYYY-MM-DD HH:mm',
+		title: 'To'
+	});
+	$('#pingFromPick').dateTimePicker({
+		dateFormat: 'YYYY-MM-DD HH:mm',
+		title: 'From'
+	});
+	$('#pingToPick').dateTimePicker({
+		dateFormat: 'YYYY-MM-DD HH:mm',
+		title: 'To'
 	});
 
 	$('#systemSelect').change(function(event) {

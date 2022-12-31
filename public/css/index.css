@@ -28,7 +28,8 @@ h1 {
 }
 .panel {
  flex:1;
- min-width:400px;
+ min-width:500px;
+ max-width:100%;
  padding:10px
 }
 #tempChart,
