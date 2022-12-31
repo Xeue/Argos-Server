@@ -764,6 +764,16 @@ async function getTemperature(socket, header, payload) {
 	
 	const dateRows = await SQL.query(`SELECT ROW_NUMBER() OVER (ORDER BY PK) AS Number, \`PK\`, \`time\` FROM \`temperature\` WHERE time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' GROUP BY \`time\`; `);
 	const total = typeof dateRows.length == 'number' ? dateRows.length : 0;
+	if (total == 0) {
+		socket.send(JSON.stringify(makePacket({
+			'command':'data',
+			'data':'temps',
+			'system':header.system,
+			'replace': true,
+			'points': {}
+		})));
+		return;
+	}
 	const divisor = Math.ceil(total/1000);
 	const whereArr = dateRows.map((a)=>{
 		if (a.Number % divisor == 0) {
