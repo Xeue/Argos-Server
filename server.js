@@ -740,8 +740,8 @@ async function getPings(socket, header, payload) {
 	const to = Number(payload.to);
 	
 	const countRows = await SQL.query(`SELECT count(\`PK\`) AS 'total' FROM \`status\` WHERE time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `);
-	const total = typeof countRows[0].total == 'number' ? countRows[0].total : 0;
-	const divisor = Math.ceil(total/1000);
+	const total = Number(countRows[0].total);
+	const divisor = isNaN(total) ? 1 : Math.ceil(total/1000);
 	const pingRows = await SQL.query(`SELECT * FROM \`status\` WHERE (\`Type\`='Ping' AND MOD(\`PK\`, ${divisor}) = 0 OR \`Status\`='0') AND Time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `);
 	let pings = {};
 	pingRows.forEach((row) => {
