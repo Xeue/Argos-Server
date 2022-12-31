@@ -205,65 +205,70 @@ class SQLSession {
 	});
 
 	if (config.get('useDb')) {
-		log(`Setting up ${logs.y}with${logs.w} database connection`, 'C');
-		const SQL = new SQLSession();
-
-		const checkTemps = await SQL.query(`SELECT count(*) as count FROM information_schema.TABLES WHERE (TABLE_SCHEMA = '${config.get('dbDatabase')}') AND (TABLE_NAME = 'temperature')`);
-		if (checkTemps[0].count == 0) {
-			log('Temperature table doesn\'t exist, creating new one', 'S');
-			await SQL.query(`CREATE TABLE \`temperature\` (
-            	\`PK\` int(11) NOT NULL,
-				\`frame\` text NOT NULL,
-				\`temperature\` float NOT NULL,
-				\`system\` text NOT NULL,
-				\`time\` timestamp NOT NULL DEFAULT current_timestamp(),
-				PRIMARY KEY (\`PK\`)
-			) ENGINE=InnoDB DEFAULT CHARSET=latin1`);
-			await SQL.query('ALTER TABLE `temperature` MODIFY `PK` int(11) NOT NULL AUTO_INCREMENT;');
-		} else {
-			log('Temperature table already exists', 'D');
+		try {
+			const SQL = new SQLSession();
+			const checkTemps = await SQL.query(`SELECT count(*) as count FROM information_schema.TABLES WHERE (TABLE_SCHEMA = '${config.get('dbDatabase')}') AND (TABLE_NAME = 'temperature')`);
+			if (checkTemps[0].count == 0) {
+				log('Temperature table doesn\'t exist, creating new one', 'S');
+				await SQL.query(`CREATE TABLE \`temperature\` (
+					\`PK\` int(11) NOT NULL,
+					\`frame\` text NOT NULL,
+					\`temperature\` float NOT NULL,
+					\`system\` text NOT NULL,
+					\`time\` timestamp NOT NULL DEFAULT current_timestamp(),
+					PRIMARY KEY (\`PK\`)
+				) ENGINE=InnoDB DEFAULT CHARSET=latin1`);
+				await SQL.query('ALTER TABLE `temperature` MODIFY `PK` int(11) NOT NULL AUTO_INCREMENT;');
+			} else {
+				log('Temperature table already exists', 'D');
+			}
+	
+			const statusCheck = await SQL.query(`SELECT count(*) as count FROM information_schema.TABLES WHERE (TABLE_SCHEMA = '${config.get('dbDatabase')}') AND (TABLE_NAME = 'status')`);
+			if (statusCheck[0].count == 0) {
+				log('Status table doesn\'t exist, creating new one', 'S');
+				await SQL.query(`CREATE TABLE \`status\` (
+					\`PK\` int(11) NOT NULL,
+					\`Type\` varchar(255) NOT NULL,
+					\`Status\` tinyint(1) NOT NULL,
+					\`Time\` timestamp NOT NULL DEFAULT current_timestamp(),
+					\`System\` varchar(256) DEFAULT NULL,
+					PRIMARY KEY (\`PK\`)
+				) ENGINE=InnoDB DEFAULT CHARSET=latin1`);
+				await SQL.query('ALTER TABLE `status` MODIFY `PK` int(11) NOT NULL AUTO_INCREMENT;');
+			} else {
+				log('Status table already exists', 'D');
+			}
+	
+			const configCheck = await SQL.query(`SELECT count(*) as count FROM information_schema.TABLES WHERE (TABLE_SCHEMA = '${config.get('dbDatabase')}') AND (TABLE_NAME = 'config')`);
+			if (configCheck[0].count == 0) {
+				log('Config table doesn\'t exist, creating new one', 'S');
+				await SQL.query(`CREATE TABLE \`config\` (
+					\`PK\` int(11) NOT NULL,
+					\`warnPing\` tinyint(1) DEFAULT 1,
+					\`warnTemp\` tinyint(1) DEFAULT 1,
+					\`warnBoot\` tinyint(1) DEFAULT 1,
+					\`warnDev\` tinyint(1) DEFAULT 1,
+					\`warnFlap\` tinyint(1) DEFAULT 1,
+					\`warnPhy\` tinyint(1) DEFAULT 1,
+					\`warnUPS\` tinyint(1) DEFAULT 1,
+					\`warnFibre\` tinyint(1) DEFAULT 1,
+					\`warnEmails\` text DEFAULT NULL,
+					\`Time\` timestamp NOT NULL DEFAULT current_timestamp(),
+					\`System\` varchar(256) DEFAULT NULL,
+					PRIMARY KEY (\`PK\`)
+				) ENGINE=InnoDB DEFAULT CHARSET=latin1`);
+				await SQL.query('ALTER TABLE `config` MODIFY `PK` int(11) NOT NULL AUTO_INCREMENT;');
+			} else {
+				log('Config table already exists', 'D');
+			}
+	
+			SQL.close();
+			log(`Setting up ${logs.y}with${logs.w} database connection`, 'C');
+		} catch (error) {
+			log('Database Connection error, aborting, this means Argos will not record any data', 'E');
+			config.set('useDb', false);
 		}
 
-		const statusCheck = await SQL.query(`SELECT count(*) as count FROM information_schema.TABLES WHERE (TABLE_SCHEMA = '${config.get('dbDatabase')}') AND (TABLE_NAME = 'status')`);
-		if (statusCheck[0].count == 0) {
-			log('Status table doesn\'t exist, creating new one', 'S');
-			await SQL.query(`CREATE TABLE \`status\` (
-				\`PK\` int(11) NOT NULL,
-				\`Type\` varchar(255) NOT NULL,
-				\`Status\` tinyint(1) NOT NULL,
-				\`Time\` timestamp NOT NULL DEFAULT current_timestamp(),
-				\`System\` varchar(256) DEFAULT NULL,
-				PRIMARY KEY (\`PK\`)
-			) ENGINE=InnoDB DEFAULT CHARSET=latin1`);
-			await SQL.query('ALTER TABLE `status` MODIFY `PK` int(11) NOT NULL AUTO_INCREMENT;');
-		} else {
-			log('Status table already exists', 'D');
-		}
-
-		const configCheck = await SQL.query(`SELECT count(*) as count FROM information_schema.TABLES WHERE (TABLE_SCHEMA = '${config.get('dbDatabase')}') AND (TABLE_NAME = 'config')`);
-		if (configCheck[0].count == 0) {
-			log('Config table doesn\'t exist, creating new one', 'S');
-			await SQL.query(`CREATE TABLE \`config\` (
-				\`PK\` int(11) NOT NULL,
-				\`warnPing\` tinyint(1) DEFAULT 1,
-				\`warnTemp\` tinyint(1) DEFAULT 1,
-				\`warnBoot\` tinyint(1) DEFAULT 1,
-				\`warnDev\` tinyint(1) DEFAULT 1,
-				\`warnFlap\` tinyint(1) DEFAULT 1,
-				\`warnPhy\` tinyint(1) DEFAULT 1,
-				\`warnUPS\` tinyint(1) DEFAULT 1,
-				\`warnFibre\` tinyint(1) DEFAULT 1,
-				\`warnEmails\` text DEFAULT NULL,
-				\`Time\` timestamp NOT NULL DEFAULT current_timestamp(),
-				\`System\` varchar(256) DEFAULT NULL,
-				PRIMARY KEY (\`PK\`)
-			) ENGINE=InnoDB DEFAULT CHARSET=latin1`);
-			await SQL.query('ALTER TABLE `config` MODIFY `PK` int(11) NOT NULL AUTO_INCREMENT;');
-		} else {
-			log('Config table already exists', 'D');
-		}
-
-		SQL.close();
 	} else {
 		log(`Running ${logs.y}without${logs.w} database connection, this means Argos will not record any data`, 'C');
 	}
