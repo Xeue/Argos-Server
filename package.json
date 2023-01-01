@@ -1,6 +1,6 @@
 {
   "name": "wbs",
-  "version": "3.1.6",
+  "version": "3.1.7",
   "description": "Argos temp and ping monitor",
   "main": "server.js",
   "type": "module",
@@ -11,7 +11,7 @@
     "nodemailer": "^6.8.0",
     "ws": "^8.11.0",
     "xeue-config": "^1.5.2",
-    "xeue-logs": "^1.7.3",
+    "xeue-logs": "^1.7.4",
     "xeue-sql": "^1.0.0"
   },
   "scripts": {
@@ -19,8 +19,5 @@
     "start": "node server.js"
   },
   "author": "Sam Chilton",
-  "license": "MIT",
-  "devDependencies": {
-    "eslint": "^8.31.0"
-  }
+  "license": "MIT"
 }
