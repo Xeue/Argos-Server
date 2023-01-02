@@ -13,7 +13,7 @@
     <script type="text/javascript" src="lib/jQuery.js"></script>
     <script type="text/javascript" src="lib/bootstrap.min.js"></script>
     <script type="text/javascript">
-      let servers = ["<%= host %>"];
+      const server = '<%= host %>';
       let pings = {};
       let allPings = <%-JSON.stringify(pings)%>;
       let boots = {};
@@ -107,6 +107,25 @@
       <section class="panel">
         <h1>Argos Starts</h1>
         <canvas id="bootChart"></canvas>
+        <div class="buttonBox">
+          <div>
+            Select from
+            <button id="bootFromPick" class="btn btn-secondary btn-sm"></button>
+            <input type="hidden" id="bootFrom" value="">
+            until
+            <button id="bootToPick" class="btn btn-secondary btn-sm"></button>
+            <input type="hidden" id="bootTo" value="">
+          </div>
+          <div class="pt-1">
+              Or the last
+              <button class="bootBut btn btn-secondary btn-sm" data-time="2419200">Month</button>
+              <button class="bootBut btn btn-secondary btn-sm" data-time="604800">Week</button>
+              <button class="bootBut btn btn-secondary btn-sm" data-time="86400">Day</button>
+              <button class="bootBut btn btn-secondary btn-sm" data-time="43200">12 Hours</button>
+              <button class="bootBut btn btn-secondary btn-sm" data-time="21600">6 Hours</button>
+              <button class="bootBut btn btn-secondary btn-sm" data-time="7200">2 Hours</button>
+          </div>
+        </div>
         <pre class="infoBox" id="bootTime"><%= boot?.Time %></pre>
       </section>
     </main>

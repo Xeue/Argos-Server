@@ -524,6 +524,9 @@ function handleGet(socket, header, payload) {
 	case 'ping':
 		getPings(socket, header, payload);
 		break;
+	case 'boot':
+		getBoots(socket, header, payload);
+		break;
 	default:
 
 	}
@@ -611,19 +614,20 @@ async function handlePing(system) {
 	log('Recorded Ping', 'D');
 }
 
-function handleBoot(system) {
+async function handleBoot(system) {
 	log('Recieved a boot', 'D');
 	bootAlert('W', system);
 	
-	SQL.insert({'Type':'Boot', 'Status':1, 'System':system}, 'status').then(()=>{
+	await SQL.insert({'Type':'Boot', 'Status':1, 'System':system}, 'status');
 		
-		sendClients(makePacket({
-			'command':'data',
-			'data':'boot',
-			'time': new Date().getTime()
-		}));
-		log('Recorded boot', 'D');
-	});
+	sendClients(makePacket({
+		'command':'data',
+		'data':'boot',
+		'status':1,
+		'system': system,
+		'time': new Date().getTime()
+	}));
+	log('Recorded boot', 'D');
 }
 
 function handleTemps(system, payload) {
@@ -673,7 +677,7 @@ async function getPings(socket, header, payload) {
 	const from = Number(payload.from);
 	const to = Number(payload.to);
 	
-	const countRows = await SQL.query(`SELECT count(\`PK\`) AS 'total' FROM \`status\` WHERE time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `);
+	const countRows = await SQL.query(`SELECT count(\`PK\`) AS 'total' FROM \`status\` WHERE \`Type\`='Ping' AND time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `);
 	const total = Number(countRows[0].total);
 	const divisor = isNaN(total) ? 1 : Math.ceil(total/1000);
 	const pingRows = await SQL.query(`SELECT * FROM \`status\` WHERE (\`Type\`='Ping' AND MOD(\`PK\`, ${divisor}) = 0 OR \`Status\`='0') AND Time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `);
@@ -752,6 +756,26 @@ async function getTemperature(socket, header, payload) {
 	})));
 }
 
+async function getBoots(socket, header, payload) {
+	log(`Getting boots for ${header.system}`, 'D');
+	const from = Number(payload.from);
+	const to = Number(payload.to);
+	
+	const bootRows = await SQL.query(`SELECT * FROM \`status\` WHERE \`Type\`='Boot' AND Time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `);
+	let boots = {};
+	bootRows.forEach((row) => {
+		boots[row.Time] = row.Status;
+	});
+
+	socket.send(JSON.stringify(makePacket({
+		'command': 'data',
+		'data': 'boot',
+		'replace': true,
+		'system': header.system,
+		'points': boots
+	})));
+}
+
 /* Config */
 
 async function systemConfig(system) {
@@ -763,6 +787,7 @@ async function systemConfig(system) {
 /* Alerts */
 
 async function tempAlert(level, text, temp, system) {
+	if (!config.get('sendWarnEmails')) return
 	const sysConfig = await systemConfig(system);
 	transporter.sendMail({
 		from: `"${system} Temp Alerts" <${config.get('emailFrom')}>`,
@@ -774,6 +799,7 @@ async function tempAlert(level, text, temp, system) {
 }
 
 async function pingAlert(level, time, interval, system) {
+	if (!config.get('sendWarnEmails')) return
 	const sysConfig = await systemConfig(system);
 	transporter.sendMail({
 		from: `"${system} Ping Alerts" <${config.get('emailFrom')}>`,
@@ -785,6 +811,7 @@ async function pingAlert(level, time, interval, system) {
 }
 
 async function bootAlert(level, system) {
+	if (!config.get('sendWarnEmails')) return
 	const sysConfig = await systemConfig(system);
 	transporter.sendMail({
 		from: `"${system} Boot Alerts" <${config.get('emailFrom')}>`,
@@ -792,5 +819,5 @@ async function bootAlert(level, system) {
 		subject: `${system} Boot Alert`,
 		text: `The ${system} Vision PC has just booted`
 	});
-	log(`The ${system} Vision PC has just booted, emailing: ${sysConfig.warnEmails}`, level);
+	log(`The ${system} Argos has just started, emailing: ${sysConfig.warnEmails}`, level);
 }

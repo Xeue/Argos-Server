@@ -2,25 +2,24 @@
 /* eslint-disable no-undef */
 /*jshint esversion: 6 */
 
-let pingTimeout;
 let pingChart;
 let tempChart;
 let bootChart;
 
-function socketDoOpen() {
+function socketDoOpen(socket) {
 	console.log('Registering as client');
-	sendData({'command':'register'});
+	socket.send({'command':'register'});
 
 	let to = new Date().getTime()/1000;
 	let from = to - 7200;
-	sendData({
+	socket.send({
 		'command':'get',
 		'data':'temperature',
 		'from': from,
 		'to': to
 	});
 
-	sendData({
+	socket.send({
 		'command':'get',
 		'data':'ping',
 		'from': from,
@@ -28,33 +27,40 @@ function socketDoOpen() {
 	});
 }
 
-function socketDoMessage(packet, header, payload) {
+function socketDoMessage(header, payload) {
 	switch (payload.command) {
 	case 'data':
-		switch (payload.data) {
-		case 'ping':
-			if (payload.replace && (payload.system == currentSystem)) {
-				pingChart.data.datasets[0].data = payload.points;
+		if (payload.system === currentSystem) {
+			switch (payload.data) {
+			case 'ping':
+				if (payload.replace) {
+					pingChart.data.datasets[0].data = payload.points;
+				} else {
+					const datePing = new Date(parseInt(payload.time));
+					const colour = payload.status == 1 ? '128, 255, 128' : '255, 64, 64';
+					pingChart.data.datasets[0].data[datePing] = payload.status;
+					pingChart.data.datasets[0].backgroundColor[0] = `rgba(${colour}, 0.2)`;
+					pingChart.data.datasets[0].borderColor[0] = `rgba(${colour}, 1)`;
+				}
 				pingChart.update();
-			} else {
-				clearTimeout(pingTimeout);
-				let datePing = new Date(parseInt(payload.time));
-				pings[datePing] = payload.status;
-				pingChart.update();
+				break;
+			case 'boot':
+				if (payload.replace) {
+					bootChart.data.datasets[0].data = payload.points;
+				} else {
+					const dateBoot = new Date(parseInt(payload.time));
+					bootChart.data.datasets[0].data[dateBoot] = 1;
+				}
+				bootChart.update();
+				break;
+			case 'temps':
+				if (payload.replace) {
+					replaceTemps(payload.points);
+				} else {
+					addTemps(payload.points);
+				}
+				break;
 			}
-			break;
-		case 'boot':
-			let dateBoot = new Date(parseInt(payload.time));
-			boots[dateBoot] = 1;
-			bootChart.update();
-			break;
-		case 'temps':
-			if (payload.replace) {
-				replaceTemps(payload.points);
-			} else {
-				addTemps(payload.points);
-			}
-			break;
 		}
 		break;
 	case 'command':
@@ -217,7 +223,7 @@ function renderBootChart(boots) {
 	const data = {
 		datasets: [
 			{
-				label: 'ARgos boot',
+				label: 'Argos starts',
 				data: boots,
 				backgroundColor: [
 					'rgba(128, 255, 128, 0.2)'
@@ -258,17 +264,31 @@ function renderBootChart(boots) {
 
 }
 
-
-socketConnect('Browser', secureWS);
-
 $(document).ready(function() {
+	renderTempChart();
+	renderPingChart();
+	renderBootChart(boots);
+
+	const webConnection = new webSocket(server, 'Browser', version, currentSystem, secureWS);
+	webConnection.addEventListener('message', event => {
+		const [header, payload] = event.detail;
+		socketDoMessage(header, payload);
+	});
+	webConnection.addEventListener('open', () => {
+		socketDoOpen(webConnection);
+		$('main').removeClass('disconnected');
+	});
+	webConnection.addEventListener('close', () => {
+		$('main').addClass('disconnected');
+	});
+
 	$(document).click(function(e) {
 		$trg = $(e.target);
 		if ($trg.hasClass('tempBut')) {
 			let time = parseInt($trg.data('time'));
 			let to = new Date().getTime()/1000;
 			let from = to - time;
-			sendData({
+			webConnection.send({
 				'command':'get',
 				'data':'temperature',
 				'from': from,
@@ -280,9 +300,20 @@ $(document).ready(function() {
 			let to = new Date().getTime()/1000;
 			let from = to - time;
 
-			sendData({
+			webConnection.send({
 				'command':'get',
 				'data':'ping',
+				'from': from,
+				'to': to
+			});
+		} else if ($trg.hasClass('bootBut')) {
+			let time = parseInt($trg.data('time'));
+			let to = new Date().getTime()/1000;
+			let from = to - time;
+
+			webConnection.send({
+				'command':'get',
+				'data':'boot',
 				'from': from,
 				'to': to
 			});
@@ -292,18 +323,25 @@ $(document).ready(function() {
 	$(document).change(function(e) {
 		const $trg = $(e.target);
 		if ($trg.is('#tempFrom') || $trg.is('#tempTo')) {
-			sendData({
+			webConnection.send({
 				'command':'get',
 				'data':'temperature',
 				'from': parseInt($('#tempFrom').val()),
 				'to': parseInt($('#tempTo').val())
 			});
 		} else if ($trg.is('#pingFrom') || $trg.is('#pingTo')) {
-			sendData({
+			webConnection.send({
 				'command':'get',
 				'data':'ping',
 				'from': parseInt($('#pingFrom').val()),
 				'to': parseInt($('#pingTo').val())
+			});
+		} else if ($trg.is('#bootFrom') || $trg.is('#bootTo')) {
+			webConnection.send({
+				'command':'get',
+				'data':'boot',
+				'from': parseInt($('#bootFrom').val()),
+				'to': parseInt($('#bootTo').val())
 			});
 		}
 	});
@@ -324,27 +362,38 @@ $(document).ready(function() {
 		dateFormat: 'YYYY-MM-DD HH:mm',
 		title: 'To'
 	});
+	$('#bootFromPick').dateTimePicker({
+		dateFormat: 'YYYY-MM-DD HH:mm',
+		title: 'From'
+	});
+	$('#bootToPick').dateTimePicker({
+		dateFormat: 'YYYY-MM-DD HH:mm',
+		title: 'To'
+	});
 
 	$('#systemSelect').change(function(event) {
 		currentSystem = event.target.value;
 		let to = new Date().getTime()/1000;
 		let from = to - 7200;
-		sendData({
+		webConnection.send({
 			'command':'get',
 			'data':'temperature',
 			'from': from,
 			'to': to
 		});
 
-		sendData({
+		webConnection.send({
 			'command':'get',
 			'data':'ping',
 			'from': from,
 			'to': to
 		});
-	});
 
-	renderPingChart(pings);
-	renderBootChart(boots);
-	renderTempChart();
+		webConnection.send({
+			'command':'get',
+			'data':'boot',
+			'from': from,
+			'to': to
+		});
+	});
 });

@@ -12,7 +12,7 @@
     "ws": "^8.11.0",
     "xeue-config": "^1.5.2",
     "xeue-logs": "^1.7.4",
-    "xeue-sql": "^1.0.0"
+    "xeue-sql": "^1.0.2"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",

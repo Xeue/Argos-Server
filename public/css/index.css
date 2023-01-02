@@ -1,87 +1,98 @@
 .disconnected::after {
- background-color:#000;
- background-color:rgba(0,0,0,.46);
- color:#fff;
- content:"Disconnected";
- font-size:600%;
- font-weight:700;
- height:100%;
- left:0;
- line-height:80vh;
- position:fixed;
- text-align:center;
- top:0;
- width:100%;
- z-index:3
+    background-color: #000;
+    background-color: rgba(0, 0, 0, .46);
+    color: #fff;
+    content: "Disconnected";
+    font-size: 600%;
+    font-weight: 700;
+    height: 100%;
+    left: 0;
+    line-height: 80vh;
+    position: fixed;
+    text-align: center;
+    top: 0;
+    width: 100%;
+    z-index: 3
 }
+
 body {
- background-color:#000;
- font-family:raleway;
- font-variant-numeric:lining-nums;
- display: flex;
- flex-direction: column;
+    background-color: #000;
+    font-family: raleway;
+    font-variant-numeric: lining-nums;
+    display: flex;
+    flex-direction: column;
 }
+
 h1 {
- color:#fff;
- margin-left:10px;
- margin-top:5px
+    color: #fff;
+    margin-left: 10px;
+    margin-top: 5px
 }
+
 .panel {
- flex:1;
- min-width:500px;
- max-width:100%;
- padding:10px
+    flex: 1;
+    min-width: clamp(0%, 500px, 100%);
+    max-width: clamp(80px, 100%, 800px);
+    padding: 10px;
 }
+
 #tempChart,
 #pingChart {
- height:auto!important;
- width:100%!important
+    height: auto !important;
+    width: 100% !important
 }
+
 .tempBut,
 .pingBut {
- background:#3d3d3d;
- border:none;
- border-radius:5px;
- border-top:1px #2f2f2f solid;
- box-sizing:border-box;
- color:#fff;
- cursor:pointer;
- min-width:50px;
- padding:.3em .6em;
- transition:.2s
+    background: #3d3d3d;
+    border: none;
+    border-radius: 5px;
+    border-top: 1px #2f2f2f solid;
+    box-sizing: border-box;
+    color: #fff;
+    cursor: pointer;
+    min-width: 50px;
+    padding: .3em .6em;
+    transition: .2s
 }
+
 .pingBut:hover,
 .tempBut:hover {
- background-color:#161616;
- border-top:1px #2f2f2f solid
+    background-color: #161616;
+    border-top: 1px #2f2f2f solid
 }
+
 .buttonBox {
- margin-left:10px
+    margin-left: 10px
 }
+
 .infoBox {
- background:#3a3a3a;
- border:1px solid #4f4f4f;
- border-radius:5px;
- color:#c4c4c4;
- font-family:monospace;
- margin:10px;
- padding:10px;
- width:fit-content
+    background: #3a3a3a;
+    border: 1px solid #4f4f4f;
+    border-radius: 5px;
+    color: #c4c4c4;
+    font-family: monospace;
+    margin: 10px;
+    padding: 10px;
+    width: fit-content
 }
+
 #t_indicatior {
- display:flex;
- flex-wrap:wrap;
+    display: flex;
+    flex-wrap: wrap;
 }
+
 .hidden {
- left:0!important;
- opacity:0;
- pointer-events:none
+    left: 0 !important;
+    opacity: 0;
+    pointer-events: none
 }
+
 .hide {
- border:0!important;
- font-size:0!important;
- height:0!important;
- margin:0!important;
- padding:0!important;
- width:0!important
+    border: 0 !important;
+    font-size: 0 !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 0 !important
 }
