@@ -373,6 +373,7 @@ $(document).ready(function() {
 
 	$('#systemSelect').change(function(event) {
 		currentSystem = event.target.value;
+		webConnection.setSystem(currentSystem);
 		let to = new Date().getTime()/1000;
 		let from = to - 7200;
 		webConnection.send({
