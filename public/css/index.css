@@ -15,71 +15,44 @@
     z-index: 3
 }
 
-body {
-    background-color: #000;
-    font-family: raleway;
-    font-variant-numeric: lining-nums;
-    display: flex;
-    flex-direction: column;
-}
-
-h1 {
-    color: #fff;
-    margin-left: 10px;
-    margin-top: 5px
-}
-
 .panel {
     flex: 1;
     min-width: clamp(0%, 500px, 100%);
     max-width: clamp(80px, 100%, 800px);
     padding: 10px;
+    position: relative;
 }
 
-#tempChart,
-#pingChart {
-    height: auto !important;
-    width: 100% !important
+.panel.expanded {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    max-width: 100%;
+    z-index: 1;
+    min-height: 100%;
 }
 
-.tempBut,
-.pingBut {
-    background: #3d3d3d;
+.expandPanel {
+    position: absolute;
+    top: 20px;
+    right: 5px;
     border: none;
-    border-radius: 5px;
-    border-top: 1px #2f2f2f solid;
-    box-sizing: border-box;
-    color: #fff;
-    cursor: pointer;
-    min-width: 50px;
-    padding: .3em .6em;
-    transition: .2s
+    background: none;
+    border-radius: 50%;
+    color: #6c757d;
+    transition: 0.2s;
 }
 
-.pingBut:hover,
-.tempBut:hover {
-    background-color: #161616;
-    border-top: 1px #2f2f2f solid
-}
-
-.buttonBox {
-    margin-left: 10px
-}
-
-.infoBox {
-    background: #3a3a3a;
-    border: 1px solid #4f4f4f;
-    border-radius: 5px;
-    color: #c4c4c4;
-    font-family: monospace;
-    margin: 10px;
-    padding: 10px;
-    width: fit-content
+.expandPanel:hover {
+    color: white;
 }
 
 #t_indicatior {
     display: flex;
     flex-wrap: wrap;
+    position: relative;
 }
 
 .hidden {

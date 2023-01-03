@@ -247,3 +247,7 @@
 .fa-angle-down:before {
     content: "\f107"
 }
+
+.fa-expand-alt:before {
+    content: "\f065"
+}

@@ -54,8 +54,10 @@
       </select>
     </nav>
     <main id="t_indicatior">
-      <section class="panel text-light">
+      <section class="panel text-light bg-dark">
         <h1>Internet Connection</h1>
+        <button type="button" class="expandPanel fa fa-expand-alt"></button>
+        <span class="text-muted">Last updated <span id="lastPing">never</span></span>
         <canvas id="pingChart"></canvas>
         <div class="buttonBox">
           <div>
@@ -76,10 +78,11 @@
               <button class="pingBut btn btn-secondary btn-sm" data-time="7200">2 Hours</button>
           </div>
         </div>
-        <pre class="infoBox" id="pingTime"><%= ping?.Time %></pre>
       </section>
-      <section class="panel text-light">
+      <section class="panel text-light bg-dark">
         <h1>IQ Frame Temperatures</h1>
+        <button type="button" class="expandPanel fa fa-expand-alt"></button>
+        <span class="text-muted">Last updated <span id="lastTemp">never</span></span>
         <canvas id="tempChart"></canvas>
         <div class="buttonBox">
           <div>
@@ -100,12 +103,11 @@
               <button class="tempBut btn btn-secondary btn-sm" data-time="7200">2 Hours</button>
           </div>
         </div>
-        <div class="infoBox">
-          <div>Updated: <span id="tempTime"></span></div>
-        </div>
       </section>
-      <section class="panel">
+      <section class="panel text-light bg-dark">
         <h1>Argos Starts</h1>
+        <button type="button" class="expandPanel fa fa-expand-alt"></button>
+        <span class="text-muted">Last updated <span id="lastBoot">never</span></span>
         <canvas id="bootChart"></canvas>
         <div class="buttonBox">
           <div>
@@ -126,7 +128,6 @@
               <button class="bootBut btn btn-secondary btn-sm" data-time="7200">2 Hours</button>
           </div>
         </div>
-        <pre class="infoBox" id="bootTime"><%= boot?.Time %></pre>
       </section>
     </main>
   </body>

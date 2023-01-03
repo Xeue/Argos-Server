@@ -22,6 +22,7 @@ const nodemailer = require('nodemailer');
 const {version} = require('./package.json');
 const type = 'Server';
 const pingList = [];
+let SQL = false;
 
 { /* Config */
 	logs.printHeader('Argos Server');
@@ -121,10 +122,10 @@ const tables = [
 		name: 'temperature',
 		definition: `CREATE TABLE \`temperature\` (
 			\`PK\` int(11) NOT NULL,
-			\`frame\` text NOT NULL,
-			\`temperature\` float NOT NULL,
-			\`system\` text NOT NULL,
-			\`time\` timestamp NOT NULL DEFAULT current_timestamp(),
+			\`Frame\` text NOT NULL,
+			\`Temperature\` float NOT NULL,
+			\`System\` text NOT NULL,
+			\`Time\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP() ON UPDATE current_timestamp(),
 			PRIMARY KEY (\`PK\`)
 		) ENGINE=InnoDB DEFAULT CHARSET=latin1`,
 		PK:'PK'
@@ -136,7 +137,7 @@ const tables = [
 			\`PK\` int(11) NOT NULL,
 			\`Type\` varchar(255) NOT NULL,
 			\`Status\` tinyint(1) NOT NULL,
-			\`Time\` timestamp NOT NULL DEFAULT current_timestamp(),
+			\`Time\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP() ON UPDATE current_timestamp(), 
 			\`System\` varchar(256) DEFAULT NULL,
 			PRIMARY KEY (\`PK\`)
 		) ENGINE=InnoDB DEFAULT CHARSET=latin1`,
@@ -156,16 +157,16 @@ const tables = [
 			\`warnUPS\` tinyint(1) DEFAULT 1,
 			\`warnFibre\` tinyint(1) DEFAULT 1,
 			\`warnEmails\` text DEFAULT NULL,
-			\`Time\` timestamp NOT NULL DEFAULT current_timestamp(),
+			\`Time\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP() ON UPDATE current_timestamp(),
 			\`System\` varchar(256) DEFAULT NULL,
 			PRIMARY KEY (\`PK\`)
 		) ENGINE=InnoDB DEFAULT CHARSET=latin1`,
 		PK:'PK'
 	}
-]
+];
 
-const SQL = config.get('useDb')
-	? new SQLSession(
+if (config.get('useDb')) {
+	SQL = new SQLSession(
 		config.get('dbHost'),
 		config.get('dbPort'),
 		config.get('dbUser'), 
@@ -173,8 +174,8 @@ const SQL = config.get('useDb')
 		config.get('dbDatabase'),
 		logs,
 		tables
-	)
-	: false;
+	);
+}
 
 
 if (SQL) {
@@ -383,23 +384,28 @@ async function doLatePing(system) {
 
 	if (system.latePings > 1080) {
 		if (system.latePings % 2160 == 0) {
-			pingAlert('W', system.latePings/360, 'hours', system.name);
+			pingAlert(system.latePings/360, 'hours', system.name);
 		}
 	} else if (system.latePings > 359) {
 		if (system.latePings % 360 == 0) {
-			pingAlert('W', system.latePings/360, 'hours', system.name);
+			pingAlert(system.latePings/360, 'hours', system.name);
 		}
 	} else if (system.latePings > 31) {
 		if (system.latePings % 60 == 0) {
-			pingAlert('W', system.latePings/6, 'minutes', system.name);
+			pingAlert(system.latePings/6, 'minutes', system.name);
 		}
 	} else if (system.latePings > 5) {
 		if (system.latePings % 6 == 0) {
-			pingAlert('W', system.latePings/6, 'minutes', system.name);
+			pingAlert(system.latePings/6, 'minutes', system.name);
 		}
 	}
 	
-	await SQL.insert({'Type':'Ping', 'Status':0, 'System':system.name}, 'status');
+	const [previous, secondPrevious] = await SQL.getN({'System':system.name, 'Type':'Ping'},'Time', 2,'status');
+	if (previous?.Status == 0 && secondPrevious?.Status == 0) {
+		await SQL.updateTime('Time', {'PK': previous.PK}, 'status');
+	} else {
+		await SQL.insert({'Type':'Ping', 'Status':0, 'System':system.name}, 'status');
+	}
 	
 	sendClients(makePacket({
 		'command':'data',
@@ -408,7 +414,7 @@ async function doLatePing(system) {
 		'system': system.name,
 		'time': new Date().getTime()
 	}));
-	log(`${system.name} missed ${system.latePings} pings`, 'W');
+	log(`${system.name} missed ${system.latePings} pings`, 'A');
 }
 
 /* Core functions & Message handeling */
@@ -575,7 +581,7 @@ async function handleRoot(request, response) {
 }
 
 async function handlePing(system) {
-	log('Recieved a ping', 'D');
+	log(`Recieved a ping from: ${logs.y}${system}${logs.reset}`, 'D');
 	const systems = pingList.map((item) => {return item?.name;});
 	if (!systems.includes(system)) {
 		const sysConfig = await systemConfig(system);
@@ -602,7 +608,12 @@ async function handlePing(system) {
 	}
 	resetPings(system);
 	
-	await SQL.insert({'Type':'Ping', 'Status':1, 'System':system}, 'status');
+	const [previous, secondPrevious] = await SQL.getN({'System':system, 'Type':'Ping'},'Time', 2,'status');
+	if (previous?.Status == 1 && secondPrevious?.Status == 1) {
+		await SQL.updateTime('Time', {'PK': previous.PK}, 'status');
+	} else {
+		await SQL.insert({'Type':'Ping', 'Status':1, 'System':system}, 'status');
+	}
 	
 	sendClients(makePacket({
 		'command':'data',
@@ -611,12 +622,11 @@ async function handlePing(system) {
 		'system': system,
 		'time': new Date().getTime()
 	}));
-	log('Recorded Ping', 'D');
 }
 
 async function handleBoot(system) {
-	log('Recieved a boot', 'D');
-	bootAlert('W', system);
+	log(`Recieved a boot notification from: ${logs.y}${system}${logs.reset}`, 'D');
+	bootAlert(system);
 	
 	await SQL.insert({'Type':'Boot', 'Status':1, 'System':system}, 'status');
 		
@@ -627,15 +637,13 @@ async function handleBoot(system) {
 		'system': system,
 		'time': new Date().getTime()
 	}));
-	log('Recorded boot', 'D');
 }
 
 function handleTemps(system, payload) {
-	log('Recieved some temps', 'D');
+	log(`Recieved some temperatures from: ${logs.y}${system}${logs.reset}`, 'D');
 
-	
-	const promises = [];
 	let average = 0;
+	let averageCounter = 0;
 	const timeStamp = new Date().getTime();
 	const dataObj = {
 		'command':'data',
@@ -649,25 +657,22 @@ function handleTemps(system, payload) {
 	payload.data.forEach((frame) => {
 
 		if (typeof frame.Temp !== 'undefined') {
+			averageCounter++;
 			average += frame.Temp;
 			if (frame.Temp > config.get('warnTemp')) {
-				tempAlert('W', frame.Name, frame.Temp, system);
+				tempAlert(frame.Name, frame.Temp, system);
 			}
 			dataObj.points[timeStamp][frame.Name] = frame.Temp;
-			promises.push(SQL.insert({
-				'frame': frame.Name,
-				'temperature': frame.Temp,
-				'system': system
-			}, 'temperature'));
+			SQL.insert({
+				'Frame': frame.Name,
+				'Temperature': frame.Temp,
+				'System': system
+			}, 'temperature');
 		}
 	});
 
-	average = average/promises.length;
+	average = average/averageCounter;
 	dataObj.points[timeStamp].average = average;
-
-	Promise.allSettled(promises).then(() => {
-		
-	});
 
 	sendClients(makePacket(dataObj));
 }
@@ -700,7 +705,7 @@ async function getTemperature(socket, header, payload) {
 	const from = Number(payload.from);
 	const to = Number(payload.to);
 	
-	const dateRows = await SQL.query(`SELECT ROW_NUMBER() OVER (ORDER BY PK) AS Number, \`PK\`, \`time\` FROM \`temperature\` WHERE time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' GROUP BY \`time\`; `);
+	const dateRows = await SQL.query(`SELECT ROW_NUMBER() OVER (ORDER BY PK) AS Number, \`PK\`, \`Time\` FROM \`temperature\` WHERE time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' GROUP BY \`Time\`; `);
 	const total = typeof dateRows.length == 'number' ? dateRows.length : 0;
 	if (total == 0) {
 		socket.send(JSON.stringify(makePacket({
@@ -724,19 +729,19 @@ async function getTemperature(socket, header, payload) {
 	if (whereString == '') {
 		query = `SELECT * FROM \`temperature\` WHERE \`system\` = '${header.system}' ORDER BY \`PK\` ASC LIMIT 1; `;
 	} else {
-		query = `SELECT * FROM \`temperature\` WHERE time IN (${whereString}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `;
+		query = `SELECT * FROM \`temperature\` WHERE time IN (${whereString}) AND \`System\` = '${header.system}' ORDER BY \`PK\` ASC; `;
 	}
 
 	const tempRows = await SQL.query(query);
 	const points = {};
 
 	tempRows.forEach(row => {
-		let timestamp = row.time.getTime();
+		const timestamp = row.Time.getTime();
 		if (!points[timestamp]) {
 			points[timestamp] = {};
 		}
-		let point = points[timestamp];
-		point[row.frame] = row.temperature;
+		const point = points[timestamp];
+		point[row.Frame] = row.Temperature;
 
 		delete point.average;
 		const n = Object.keys(point).length;
@@ -779,45 +784,48 @@ async function getBoots(socket, header, payload) {
 /* Config */
 
 async function systemConfig(system) {
-	
 	const [systemConfig] = await SQL.query(`SELECT * FROM \`config\` WHERE \`system\` = '${system}'; `);
 	return systemConfig;
 }
 
 /* Alerts */
 
-async function tempAlert(level, text, temp, system) {
-	if (!config.get('sendWarnEmails')) return
+async function tempAlert(text, temp, system) {
+	if (!config.get('sendWarnEmails')) return;
 	const sysConfig = await systemConfig(system);
+	if (!sysConfig.warnTemp) return;
 	transporter.sendMail({
 		from: `"${system} Temp Alerts" <${config.get('emailFrom')}>`,
 		to: sysConfig.warnEmails,
 		subject: `${system} Temperature Alert`,
-		text: `The ${text} temperature is at a critical level! Current temperature is: ${temp}°C`
+		text: `The ${text} temperature in ${system} is at a critical level! Current temperature is: ${temp}°C`
 	});
-	log(`The ${text} temperature in ${system} is at a critical level! Current temperature is: ${temp}°C, emailing: ${sysConfig.warnEmails}`, level);
+	log(`${system} - ${text} has exceeded the warning temperature and is at: ${temp}°C, emailing: ${sysConfig.warnEmails}`, 'W');
 }
 
-async function pingAlert(level, time, interval, system) {
-	if (!config.get('sendWarnEmails')) return
+async function pingAlert(time, interval, system) {
+	log(`The ${system} Argos system has not pinged the server in ${time} ${interval}`, 'W');
+	if (!config.get('sendWarnEmails')) return;
 	const sysConfig = await systemConfig(system);
+	if (!sysConfig.warnPing) return;
+	log(`Email ping alerts are enabled for ${system}, emailing: ${sysConfig.warnEmails}`, 'W');
 	transporter.sendMail({
 		from: `"${system} Ping Alerts" <${config.get('emailFrom')}>`,
 		to: sysConfig.warnEmails,
 		subject: `${system} Ping Alert`,
-		text: `The ${system} Vision PC has not pinged the server in ${time} ${interval}. It is either offline or has lost internet`
+		text: `The ${system} Argos system has not pinged the server in ${time} ${interval}. It is either offline or has lost internet`
 	});
-	log(`The ${system} Vision PC has not pinged the server in ${time} ${interval}. It is either offline or has lost internet, emailing: ${sysConfig.warnEmails}`, level);
 }
 
-async function bootAlert(level, system) {
-	if (!config.get('sendWarnEmails')) return
+async function bootAlert(system) {
+	if (!config.get('sendWarnEmails')) return;
 	const sysConfig = await systemConfig(system);
+	if (!sysConfig.warnBoot) return;
 	transporter.sendMail({
 		from: `"${system} Boot Alerts" <${config.get('emailFrom')}>`,
 		to: sysConfig.warnEmails,
 		subject: `${system} Boot Alert`,
-		text: `The ${system} Vision PC has just booted`
+		text: `The ${system} Argos system has just booted`
 	});
-	log(`The ${system} Argos has just started, emailing: ${sysConfig.warnEmails}`, level);
+	log(`The ${system} Argos system has just started, emailing: ${sysConfig.warnEmails}`, 'W');
 }

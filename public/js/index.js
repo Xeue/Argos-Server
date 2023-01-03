@@ -5,6 +5,9 @@
 let pingChart;
 let tempChart;
 let bootChart;
+let lastPing = -1;
+let lastBoot = -1;
+let lastTemp = -1;
 
 function socketDoOpen(socket) {
 	console.log('Registering as client');
@@ -25,6 +28,13 @@ function socketDoOpen(socket) {
 		'from': from,
 		'to': to
 	});
+
+	socket.send({
+		'command':'boot',
+		'data':'ping',
+		'from': to - 604800,
+		'to': to
+	});
 }
 
 function socketDoMessage(header, payload) {
@@ -42,6 +52,7 @@ function socketDoMessage(header, payload) {
 					pingChart.data.datasets[0].backgroundColor[0] = `rgba(${colour}, 0.2)`;
 					pingChart.data.datasets[0].borderColor[0] = `rgba(${colour}, 1)`;
 				}
+				lastPing = Date.now();
 				pingChart.update();
 				break;
 			case 'boot':
@@ -51,6 +62,7 @@ function socketDoMessage(header, payload) {
 					const dateBoot = new Date(parseInt(payload.time));
 					bootChart.data.datasets[0].data[dateBoot] = 1;
 				}
+				lastBoot = Date.now();
 				bootChart.update();
 				break;
 			case 'temps':
@@ -59,6 +71,7 @@ function socketDoMessage(header, payload) {
 				} else {
 					addTemps(payload.points);
 				}
+				lastTemp = Date.now();
 				break;
 			}
 		}
@@ -264,10 +277,54 @@ function renderBootChart(boots) {
 
 }
 
+function updateLast() {
+	$('#lastPing').text(prettifyTime(lastPing));
+	$('#lastBoot').text(prettifyTime(lastBoot));
+	$('#lastTemp').text(prettifyTime(lastTemp));
+}
+
+function prettifyTime(time) {
+	if (time == -1) {
+		return 'never';
+	}
+	let t = Math.floor((Date.now() - time) / 1000);
+	let minutes = Math.floor(t / 60);
+	let seconds = t % 60;
+	if (minutes == 0 && seconds == 0) {
+		return 'just now';
+	} else if (minutes == 0) {
+		if (seconds == 1) {
+			return '1 second ago';
+		} else {
+			return seconds + ' seconds ago';
+		}
+	} else if (minutes == 1) {
+		if (seconds == 0) {
+			return '1 minute ago';
+		}
+		else if (seconds == 1) {
+			return '1 minute, 1 second ago';
+		} else {
+			return '1 minute, ' + seconds + ' seconds ago';
+		}
+	} else {
+		if (seconds == 0) {
+			return minutes + ' minutes ago';
+		}
+		else if (seconds == 1) {
+			return minutes + ' minutes, 1 second ago';
+		} else {
+			return minutes + ' minutes, ' + seconds + ' seconds ago';
+		}
+	}
+}
+
 $(document).ready(function() {
 	renderTempChart();
 	renderPingChart();
 	renderBootChart(boots);
+
+	setInterval(updateLast, 1000);
 
 	const webConnection = new webSocket(server, 'Browser', version, currentSystem, secureWS);
 	webConnection.addEventListener('message', event => {
@@ -317,6 +374,8 @@ $(document).ready(function() {
 				'from': from,
 				'to': to
 			});
+		} else if ($trg.hasClass('expandPanel')) {
+			$trg.closest('.panel').toggleClass('expanded');
 		}
 	});
 
