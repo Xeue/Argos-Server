@@ -46,7 +46,7 @@
         <img src="img/icon/temp.svg" width="30" height="30" class="d-inline-block align-top" alt="">
         Argos
       </a>
-      <select id="systemSelect" class="form-select w-auto">
+      <select id="systemSelect" class="form-select w-auto" autocomplete="off">
         <option selected disabled hidden value="Select System">Select System</option>
         <% systems.forEach((system)=>{ %>
           <option value="<%=system%>"><%=system%></option>

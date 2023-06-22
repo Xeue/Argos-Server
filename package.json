@@ -1,18 +1,19 @@
 {
   "name": "wbs",
-  "version": "3.2.0",
+  "version": "3.3.0",
   "description": "Argos temp and ping monitor",
   "main": "server.js",
   "type": "module",
   "dependencies": {
     "cors": "^2.8.5",
-    "ejs": "^3.1.8",
+    "ejs": "^3.1.9",
     "express": "^4.18.2",
-    "nodemailer": "^6.8.0",
-    "ws": "^8.11.0",
-    "xeue-config": "^1.5.2",
-    "xeue-logs": "^1.7.4",
-    "xeue-sql": "^1.1.0"
+    "nodemailer": "^6.9.3",
+    "ws": "^8.13.0",
+    "xeue-config": "^1.5.3",
+    "xeue-logs": "^1.7.5",
+    "xeue-sql": "^2.0.6",
+    "xeue-webserver": "^1.0.5"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",

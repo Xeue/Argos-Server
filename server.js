@@ -13,6 +13,7 @@ import express from 'express';
 import {log, logObj, logs} from 'xeue-logs';
 import {config} from 'xeue-config';
 import {SQLSession} from 'xeue-sql';
+import {Server} from 'xeue-webserver';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -172,9 +173,9 @@ if (config.get('useDb')) {
 		config.get('dbUser'), 
 		config.get('dbPass'), 
 		config.get('dbDatabase'),
-		logs,
-		tables
+		logs
 	);
+	await SQL.init(tables);
 }
 
 
@@ -184,124 +185,62 @@ if (SQL) {
 	log(`Running ${logs.y}without${logs.w} database connection, this means Argos will not record any data`, 'C');
 }
 
-const [serverHTTP, serverWS] = startServers();
-startLoops();
 
+const webServer = new Server(
+	config.get("port"),
+	expressRoutes,
+	logs,
+	version,
+	config,
+	doMessage
+);
+const [serverHTTP, serverWS] = webServer.start();
+log(`Argos can be accessed at http://localhost:${config.get('port')}`, 'C');
+
+startLoops();
 
 /* Server functions */
 
-function startServers() {
-	const expressApp = express();
-	const serverWS = new WebSocketServer({noServer: true});
-	const serverHTTP = http.createServer(expressApp);
-
-	setupExpress(expressApp);
-
-	serverHTTP.listen(config.get('port'));
-	log(`Argos can be accessed at http://localhost:${config.get('port')}`, 'C');
-
-	serverHTTP.on('upgrade', (request, socket, head) => {
-		log('Upgrade request received', 'D');
-		serverWS.handleUpgrade(request, socket, head, socket => {
-			serverWS.emit('connection', socket, request);
-		});
-	});
-
-	// Main websocket server functionality
-	serverWS.on('connection', function connection(socket) {
-		log('New connection established', 'D');
-
+async function doMessage(msgObj, socket) {
+	const pObj = msgObj.payload;
+	const hObj = msgObj.header;
+	if (typeof pObj.source == 'undefined') {
+		pObj.source = 'default';
+	}
+	switch (pObj.command) {
+	case 'meta':
+		log('Received: '+msgJSON, 'D');
+		socket.send('Received meta');
+		break;
+	case 'register':
+		coreDoRegister(socket, msgObj);
+		break;
+	case 'disconnect':
+		log(`${logs.r}${pObj.data.ID}${logs.reset} Connection closed`, 'D');
+		break;
+	case 'pong':
 		socket.pingStatus = 'alive';
-
-		socket.on('message', function message(msgJSON) {
-			let msgObj = {};
-			let pObj;
-			let hObj;
-			try {
-				msgObj = JSON.parse(msgJSON);
-				if (msgObj.payload.command !== 'ping' && msgObj.payload.command !== 'pong') {
-					logObj('Received', msgObj, 'A');
-				} else if (config.get('printPings') == true) {
-					logObj('Received', msgObj, 'A');
-				}
-				pObj = msgObj.payload;
-				hObj = msgObj.header;
-				if (typeof pObj.source == 'undefined') {
-					pObj.source = 'default';
-				}
-				switch (pObj.command) {
-				case 'meta':
-					log('Received: '+msgJSON, 'D');
-					socket.send('Received meta');
-					break;
-				case 'register':
-					coreDoRegister(socket, msgObj);
-					break;
-				case 'disconnect':
-					log(`${logs.r}${pObj.data.ID}${logs.reset} Connection closed`, 'D');
-					break;
-				case 'pong':
-					socket.pingStatus = 'alive';
-					break;
-				case 'ping':
-					socket.pingStatus = 'alive';
-					sendData(socket, {'command': 'pong'});
-					break;
-				case 'error':
-					log(`Device ${hObj.fromID} has entered an error state`, 'E');
-					log(`Message: ${pObj.error}`, 'E');
-					break;
-				case 'log':
-					handleLog(hObj, pObj);
-					break;
-				case 'get':
-					handleGet(socket, hObj, pObj);
-					break;
-				default:
-					logObj('Unknown message', msgObj, 'W');
-				}
-			} catch (e) {
-				try {
-					msgObj = JSON.parse(msgJSON);
-					if (msgObj.payload.command !== 'ping' && msgObj.payload.command !== 'pong') {
-						logObj('Received', msgObj, 'A');
-					} else if (config.get('printPings') == true) {
-						logObj('Received', msgObj, 'A');
-					}
-					if (typeof msgObj.type == 'undefined') {
-						let stack = e.stack.toString().split(/\r\n|\n/);
-						stack = JSON.stringify(stack, null, 4);
-						log(`Server error, stack trace: ${stack}`, 'E');
-					} else {
-						log('A device is using old tally format, upgrade it to v4.0 or above', 'E');
-					}
-				} catch (e2) {
-					log('Invalid JSON - '+e, 'E');
-					log('Received: '+msgJSON, 'A');
-				}
-			}
-		});
-
-		socket.on('close', function() {
-			try {
-				let oldId = JSON.parse(JSON.stringify(socket.ID));
-				log(`${logs.r}${oldId}${logs.reset} Connection closed`, 'D');
-				socket.connected = false;
-			} catch (e) {
-				log('Could not end connection cleanly','E');
-			}
-		});
-	});
-
-	serverWS.on('error', function() {
-		log('Server failed to start or crashed, please check the port is not in use', 'E');
-		process.exit(1);
-	});
-
-	return [serverHTTP, serverWS];
+		break;
+	case 'ping':
+		socket.pingStatus = 'alive';
+		sendData(socket, {'command': 'pong'});
+		break;
+	case 'error':
+		log(`Device ${hObj.fromID} has entered an error state`, 'E');
+		log(`Message: ${pObj.error}`, 'E');
+		break;
+	case 'log':
+		handleLog(hObj, pObj);
+		break;
+	case 'get':
+		handleGet(socket, hObj, pObj);
+		break;
+	default:
+		logObj('Unknown message', msgObj, 'W');
+	}
 }
 
-function setupExpress(expressApp) {
+function expressRoutes(expressApp) {
 	expressApp.set('views', __dirname + '/views');
 	expressApp.set('view engine', 'ejs');
 	expressApp.use(cors());
@@ -684,8 +623,14 @@ async function getPings(socket, header, payload) {
 	
 	const countRows = await SQL.query(`SELECT count(\`PK\`) AS 'total' FROM \`status\` WHERE \`Type\`='Ping' AND time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `);
 	const total = Number(countRows[0].total);
-	const divisor = isNaN(total) ? 1 : Math.ceil(total/1000);
-	const pingRows = await SQL.query(`SELECT * FROM \`status\` WHERE (\`Type\`='Ping' AND MOD(\`PK\`, ${divisor}) = 0 OR \`Status\`='0') AND Time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `);
+	let divisor = 1;
+	if (total > 50) {
+		divisor = isNaN(total) ? 1 : Math.ceil(total/1000);
+	}
+	let pingRows = await SQL.query(`SELECT * FROM \`status\` WHERE (\`Type\`='Ping' AND MOD(\`PK\`, ${divisor}) = 0 OR \`Status\`='0') AND Time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `);
+	if (pingRows.length < 4) {
+		pingRows = await SQL.query(`SELECT * FROM \`status\` WHERE (\`Type\`='Ping' AND \`system\` = '${header.system}') ORDER BY \`PK\` ASC LIMIT 4; `);
+	}
 	let pings = {};
 	pingRows.forEach((row) => {
 		pings[row.Time] = row.Status;
@@ -720,7 +665,7 @@ async function getTemperature(socket, header, payload) {
 	const divisor = Math.ceil(total/1000);
 	const whereArr = dateRows.map((a)=>{
 		if (Number(a.Number) % divisor == 0) {
-			let data = new Date(a.time).toISOString().slice(0, 19).replace('T', ' ');
+			let data = new Date(a.Time).toISOString().slice(0, 19).replace('T', ' ');
 			return `'${data}'`;
 		}
 	}).filter(Boolean);
