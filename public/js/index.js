@@ -30,8 +30,8 @@ function socketDoOpen(socket) {
 	});
 
 	socket.send({
-		'command':'boot',
-		'data':'ping',
+		'command':'get',
+		'data':'boot',
 		'from': to - 604800,
 		'to': to
 	});

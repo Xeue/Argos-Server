@@ -2,9 +2,7 @@
 /*jshint esversion: 6 */
 const serverID = new Date().getTime();
 
-import { WebSocketServer } from 'ws';
 import { WebSocket } from 'ws';
-import http from 'http';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
@@ -223,7 +221,7 @@ async function doMessage(msgObj, socket) {
 		break;
 	case 'ping':
 		socket.pingStatus = 'alive';
-		sendData(socket, {'command': 'pong'});
+		webServer.sendTo(client, {'command': 'pong'});
 		break;
 	case 'error':
 		log(`Device ${hObj.fromID} has entered an error state`, 'E');
@@ -284,7 +282,7 @@ function doPing() {
 				counts.alive++;
 				let payload = {};
 				payload.command = 'ping';
-				sendData(client, payload);
+				webServer.sendTo(client, payload);
 				client.pingStatus = 'pending';
 			} else if (client.pingStatus == 'pending') {
 				client.pingStatus = 'dead';
@@ -346,13 +344,13 @@ async function doLatePing(system) {
 		await SQL.insert({'Type':'Ping', 'Status':0, 'System':system.name}, 'status');
 	}
 	
-	sendClients(makePacket({
+	webServer.sendToAll({
 		'command':'data',
 		'data':'ping',
 		'status':0,
 		'system': system.name,
 		'time': new Date().getTime()
-	}));
+	})
 	log(`${system.name} missed ${system.latePings} pings`, 'A');
 }
 
@@ -387,62 +385,6 @@ function coreDoRegister(socket, msgObj) {
 			socket.camera = pObj.data.camera;
 		}
 	}
-}
-
-function sendClients(json, socket = null) { //All but servers
-	let obj = {};
-	if (typeof json == 'object') {
-		obj = json;
-	} else {
-		obj = JSON.parse(json);
-	}
-
-	const recipients = obj.header.recipients;
-	serverWS.clients.forEach(function each(client) {
-		if (client !== socket && client.readyState === WebSocket.OPEN) {
-			if (!recipients.includes(client.address) && client.type != 'Server') {
-				client.send(JSON.stringify(obj));
-			}
-		}
-	});
-}
-
-/* Websocket packet functions */
-
-function makeHeader(intType = type, intVersion = version) {
-	let header = {};
-	header.fromID = serverID;
-	header.timestamp = new Date().getTime();
-	header.version = intVersion;
-	header.type = intType;
-	header.active = true;
-	header.messageID = header.timestamp;
-	header.recipients = [
-		config.get('host')
-	];
-	return header;
-}
-
-function makePacket(json) {
-	let payload = {};
-	if (typeof json == 'object') {
-		payload = json;
-	} else {
-		payload = JSON.parse(json);
-	}
-	let packet = {};
-	let header = makeHeader();
-	packet.header = header;
-	packet.payload = payload;
-	return packet;
-}
-
-function sendData(connection, payload) {
-	let packet = {};
-	let header = makeHeader();
-	packet.header = header;
-	packet.payload = payload;
-	connection.send(JSON.stringify(packet));
 }
 
 /* Handelers */
@@ -554,13 +496,13 @@ async function handlePing(system) {
 		await SQL.insert({'Type':'Ping', 'Status':1, 'System':system}, 'status');
 	}
 	
-	sendClients(makePacket({
+	webServer.sendToAll({
 		'command':'data',
 		'data':'ping',
 		'status':1,
 		'system': system,
 		'time': new Date().getTime()
-	}));
+	})
 }
 
 async function handleBoot(system) {
@@ -569,13 +511,13 @@ async function handleBoot(system) {
 	
 	await SQL.insert({'Type':'Boot', 'Status':1, 'System':system}, 'status');
 		
-	sendClients(makePacket({
+	webServer.sendToAll({
 		'command':'data',
 		'data':'boot',
 		'status':1,
 		'system': system,
 		'time': new Date().getTime()
-	}));
+	})
 }
 
 function handleTemps(system, payload) {
@@ -613,7 +555,7 @@ function handleTemps(system, payload) {
 	average = average/averageCounter;
 	dataObj.points[timeStamp].average = average;
 
-	sendClients(makePacket(dataObj));
+	webServer.sendToAll(dataObj);
 }
 
 async function getPings(socket, header, payload) {
@@ -636,13 +578,13 @@ async function getPings(socket, header, payload) {
 		pings[row.Time] = row.Status;
 	});
 
-	socket.send(JSON.stringify(makePacket({
+	webServer.sendTo(socket, {
 		'command': 'data',
 		'data': 'ping',
 		'replace': true,
 		'system': header.system,
 		'points': pings
-	})));
+	});
 }
 
 async function getTemperature(socket, header, payload) {
@@ -653,13 +595,13 @@ async function getTemperature(socket, header, payload) {
 	const dateRows = await SQL.query(`SELECT ROW_NUMBER() OVER (ORDER BY PK) AS Number, \`PK\`, \`Time\` FROM \`temperature\` WHERE time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' GROUP BY \`Time\`; `);
 	const total = typeof dateRows.length == 'number' ? dateRows.length : 0;
 	if (total == 0) {
-		socket.send(JSON.stringify(makePacket({
+		webServer.sendTo(socket, {
 			'command':'data',
 			'data':'temps',
 			'system':header.system,
 			'replace': true,
 			'points': {}
-		})));
+		});
 		return;
 	}
 	const divisor = Math.ceil(total/1000);
@@ -697,13 +639,13 @@ async function getTemperature(socket, header, payload) {
 		point.average = total/n;
 	});
 
-	socket.send(JSON.stringify(makePacket({
+	webServer.sendTo(socket, {
 		'command':'data',
 		'data':'temps',
 		'system':header.system,
 		'replace': true,
 		'points': points
-	})));
+	});
 }
 
 async function getBoots(socket, header, payload) {
@@ -711,19 +653,22 @@ async function getBoots(socket, header, payload) {
 	const from = Number(payload.from);
 	const to = Number(payload.to);
 	
-	const bootRows = await SQL.query(`SELECT * FROM \`status\` WHERE \`Type\`='Boot' AND Time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `);
+	let bootRows = await SQL.query(`SELECT * FROM \`status\` WHERE \`Type\`='Boot' AND Time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `);
+	if (bootRows.length < 1) {
+		bootRows = await SQL.query(`SELECT * FROM \`status\` WHERE \`Type\`='Boot' AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC LIMIT 1; `);
+	}
 	let boots = {};
 	bootRows.forEach((row) => {
 		boots[row.Time] = row.Status;
 	});
 
-	socket.send(JSON.stringify(makePacket({
+	webServer.sendTo(socket, {
 		'command': 'data',
 		'data': 'boot',
 		'replace': true,
 		'system': header.system,
 		'points': boots
-	})));
+	});
 }
 
 /* Config */
