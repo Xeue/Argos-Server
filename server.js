@@ -213,20 +213,6 @@ async function doMessage(msgObj, socket) {
 	case 'register':
 		coreDoRegister(socket, msgObj);
 		break;
-	case 'disconnect':
-		log(`${logs.r}${pObj.data.ID}${logs.reset} Connection closed`, 'D');
-		break;
-	case 'pong':
-		socket.pingStatus = 'alive';
-		break;
-	case 'ping':
-		socket.pingStatus = 'alive';
-		webServer.sendTo(client, {'command': 'pong'});
-		break;
-	case 'error':
-		log(`Device ${hObj.fromID} has entered an error state`, 'E');
-		log(`Message: ${pObj.error}`, 'E');
-		break;
 	case 'log':
 		handleLog(hObj, pObj);
 		break;
@@ -254,9 +240,8 @@ function expressRoutes(expressApp) {
 function startLoops() {
 
 	// 5 Second ping loop
-	setInterval(() => {
-		doPing();
-	}, 5*1000);
+	/*setInterval(() => {
+	}, 5*1000);*/
 
 	// 30 Second ping loop
 	setInterval(() => {
@@ -267,34 +252,6 @@ function startLoops() {
 	/*setInterval(() => {
 
 	}, 60*1000*5);*/
-}
-
-function doPing() {
-	if (config.get('printPings') !== false) {
-		log('Doing ping', 'A');
-	}
-	let counts = {};
-	counts.alive = 0;
-	counts.dead = 0;
-	serverWS.clients.forEach(function each(client) {
-		if (client.readyState === 1) {
-			if (client.pingStatus == 'alive') {
-				counts.alive++;
-				let payload = {};
-				payload.command = 'ping';
-				webServer.sendTo(client, payload);
-				client.pingStatus = 'pending';
-			} else if (client.pingStatus == 'pending') {
-				client.pingStatus = 'dead';
-			} else {
-				counts.dead++;
-			}
-		}
-	});
-	if (config.get('printPings') !== false) {
-		log('Clients alive: '+counts.alive, 'A');
-		log('Clients dead: '+counts.dead, 'A');
-	}
 }
 
 function resetPings(system) {
