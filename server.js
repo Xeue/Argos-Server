@@ -583,9 +583,9 @@ async function getTemperature(socket, header, payload) {
 	const whereString = whereArr.join(',');
 	let query;
 	if (whereString == '') {
-		query = `SELECT * FROM \`temperature\` WHERE \`System\` = '${header.system}' \`Type\` = '${payload.type}' ORDER BY \`PK\` ASC LIMIT 1; `;
+		query = `SELECT * FROM \`temperature\` WHERE \`System\` = '${header.system}' AND \`Type\` = '${payload.type}' ORDER BY \`PK\` ASC LIMIT 1; `;
 	} else {
-		query = `SELECT * FROM \`temperature\` WHERE time IN (${whereString}) AND \`System\` = '${header.system}' \`Type\` = '${payload.type}' ORDER BY \`PK\` ASC; `;
+		query = `SELECT * FROM \`temperature\` WHERE time IN (${whereString}) AND \`System\` = '${header.system}' AND \`Type\` = '${payload.type}' ORDER BY \`PK\` ASC; `;
 	}
 
 	const tempRows = await SQL.query(query);
