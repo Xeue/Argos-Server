@@ -491,10 +491,11 @@ function handleTemps(system, payload) {
 	let averageCounter = 0;
 	const timeStamp = new Date().getTime();
 	const sensorNames = Object.keys(payload.data);
+	const type = payload.data[sensorNames[0]].Type == 'IQ Frame' ? 'iq' : 'generic';
 	const dataObj = {
 		'command':'data',
 		'data':'temps',
-		'type':payload.data[sensorNames[0]].Type,
+		'type':type,
 		'system':system,
 		'replace': false,
 		'points':{}
