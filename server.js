@@ -560,7 +560,7 @@ async function getTemperature(socket, header, payload) {
 	const from = Number(payload.from);
 	const to = Number(payload.to);
 	
-	const dateRows = await SQL.query(`SELECT ROW_NUMBER() OVER (ORDER BY PK) AS Number, \`PK\`, \`Time\` FROM \`temperature\` WHERE time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' AND \`type\` = '${payload.type}' GROUP BY \`Time\`; `);
+	const dateRows = await SQL.query(`SELECT ROW_NUMBER() OVER (ORDER BY PK) AS Number, \`PK\`, \`Time\` FROM \`temperature\` WHERE time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`System\` = '${header.system}' AND \`Type\` = '${payload.type}' GROUP BY \`Time\`; `);
 	const total = typeof dateRows.length == 'number' ? dateRows.length : 0;
 	if (total == 0) {
 		webServer.sendTo(socket, {
@@ -583,9 +583,9 @@ async function getTemperature(socket, header, payload) {
 	const whereString = whereArr.join(',');
 	let query;
 	if (whereString == '') {
-		query = `SELECT * FROM \`temperature\` WHERE \`system\` = '${header.system}' \`type\` = '${payload.type}' ORDER BY \`PK\` ASC LIMIT 1; `;
+		query = `SELECT * FROM \`temperature\` WHERE \`System\` = '${header.system}' \`Type\` = '${payload.type}' ORDER BY \`PK\` ASC LIMIT 1; `;
 	} else {
-		query = `SELECT * FROM \`temperature\` WHERE time IN (${whereString}) AND \`System\` = '${header.system}' \`type\` = '${payload.type}' ORDER BY \`PK\` ASC; `;
+		query = `SELECT * FROM \`temperature\` WHERE time IN (${whereString}) AND \`System\` = '${header.system}' \`Type\` = '${payload.type}' ORDER BY \`PK\` ASC; `;
 	}
 
 	const tempRows = await SQL.query(query);
