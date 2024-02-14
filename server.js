@@ -494,7 +494,7 @@ function handleTemps(system, payload) {
 	const dataObj = {
 		'command':'data',
 		'data':'temps',
-		'type':payload.data[sensorNames[0]].type,
+		'type':payload.data[sensorNames[0]].Type,
 		'system':system,
 		'replace': false,
 		'points':{}
