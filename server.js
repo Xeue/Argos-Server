@@ -205,28 +205,28 @@ startLoops();
 
 /* Server functions */
 
-async function doMessage(msgObj, socket) {
-	const pObj = msgObj.payload;
-	const hObj = msgObj.header;
-	if (typeof pObj.source == 'undefined') {
-		pObj.source = 'default';
+async function doMessage(message, socket) {
+	const payload = message.payload;
+	const header = message.header;
+	if (typeof payload.source == 'undefined') {
+		payload.source = 'default';
 	}
-	switch (pObj.command) {
+	switch (payload.command) {
 	case 'meta':
 		log('Received: '+msgJSON, 'D');
 		socket.send('Received meta');
 		break;
 	case 'register':
-		coreDoRegister(socket, msgObj);
+		coreDoRegister(socket, header, payload);
 		break;
 	case 'log':
-		handleLog(hObj, pObj);
+		handleLog(header, payload);
 		break;
 	case 'get':
-		handleGet(socket, hObj, pObj);
+		handleGet(socket, header, payload);
 		break;
 	default:
-		logObj('Unknown message', msgObj, 'W');
+		logObj('Unknown message', message, 'W');
 	}
 }
 
@@ -319,33 +319,31 @@ async function doLatePing(system) {
 
 /* Core functions & Message handeling */
 
-function coreDoRegister(socket, msgObj) {
-	let hObj = msgObj.header;
-	let pObj = msgObj.payload;
+function coreDoRegister(socket, header, payload) {
 	if (typeof socket.type == 'undefined') {
-		socket.type = hObj.type;
+		socket.type = header.type;
 	}
 	if (typeof socket.ID == 'undefined') {
-		socket.ID = hObj.fromID;
+		socket.ID = header.fromID;
 	}
 	if (typeof socket.version == 'undefined') {
-		socket.version = hObj.version;
+		socket.version = header.version;
 	}
 	if (typeof socket.prodID == 'undefined') {
-		socket.prodID = hObj.prodID;
+		socket.prodID = header.prodID;
 	}
-	if (hObj.version !== version) {
-		if (hObj.version.substr(0, hObj.version.indexOf('.')) != version.substr(0, version.indexOf('.'))) {
+	if (header.version !== version) {
+		if (header.version.substr(0, header.version.indexOf('.')) != version.substr(0, version.indexOf('.'))) {
 			log('Connected client has different major version, it will not work with this server!', 'E');
 		} else {
 			log('Connected client has differnet version, support not guaranteed', 'W');
 		}
 	}
-	log(`${logs.g}${hObj.fromID}${logs.reset} Registered as new client`, 'D');
+	log(`${logs.g}${header.fromID}${logs.reset} Registered as new client`, 'D');
 	socket.connected = true;
-	if (typeof pObj.data !== 'undefined') {
-		if (typeof pObj.data.camera !== 'undefined') {
-			socket.camera = pObj.data.camera;
+	if (typeof payload.data !== 'undefined') {
+		if (typeof payload.data.camera !== 'undefined') {
+			socket.camera = payload.data.camera;
 		}
 	}
 }
@@ -362,6 +360,9 @@ function handleLog(header, payload) {
 		break;
 	case 'temperature':
 		handleTemps(header.system, payload);
+		break;
+	case 'ups':
+		handleUps(header.system, payload);
 		break;
 	}
 }
@@ -499,21 +500,22 @@ function handleTemps(system, payload) {
 	};
 	dataObj.points[timeStamp] = {};
 
-	if (Object.keys(payload.data).length == 0) return;
+	const sensorNames = Object.keys(payload.data);
+	if (sensorNames.length == 0) return;
 
-	payload.data.forEach((frame) => {
-
-		if (typeof frame.Temp !== 'undefined') {
+	sensorNames.forEach(sensorName => {
+		const sensor = payload.data[sensorName]
+		if (typeof sensor.Temp !== 'undefined') {
 			averageCounter++;
-			average += frame.Temp;
-			if (frame.Temp > config.get('warnTemp')) {
-				tempAlert(frame.Name, frame.Temp, system);
+			average += sensor.Temp;
+			if (sensor.Temp > config.get('warnTemp')) {
+				tempAlert(sensor.Name, sensor.Temp, system);
 			}
-			dataObj.points[timeStamp][frame.Name] = frame.Temp;
-			const type = frame.Type == 'IQ Frame' ? 'iq' : 'generic';
+			dataObj.points[timeStamp][sensor.Name] = sensor.Temp;
+			const type = sensor.Type == 'IQ Frame' ? 'iq' : 'generic';
 			SQL.insert({
-				'Frame': frame.Name,
-				'Temperature': frame.Temp,
+				'Frame': sensor.Name,
+				'Temperature': sensor.Temp,
 				'Type': type,
 				'System': system
 			}, 'temperature');
@@ -524,6 +526,10 @@ function handleTemps(system, payload) {
 	dataObj.points[timeStamp].average = average;
 
 	webServer.sendToAll(dataObj);
+}
+
+async function handleUps(system, payload) {
+
 }
 
 async function getPings(socket, header, payload) {
