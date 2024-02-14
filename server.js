@@ -490,17 +490,17 @@ function handleTemps(system, payload) {
 	let average = 0;
 	let averageCounter = 0;
 	const timeStamp = new Date().getTime();
+	const sensorNames = Object.keys(payload.data);
 	const dataObj = {
 		'command':'data',
 		'data':'temps',
-		'type':payload.type,
+		'type':payload.data[sensorNames[0]].type,
 		'system':system,
 		'replace': false,
 		'points':{}
 	};
 	dataObj.points[timeStamp] = {};
 
-	const sensorNames = Object.keys(payload.data);
 	if (sensorNames.length == 0) return;
 
 	sensorNames.forEach(sensorName => {
