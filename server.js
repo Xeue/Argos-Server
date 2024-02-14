@@ -124,6 +124,7 @@ const tables = [
 			\`Frame\` text NOT NULL,
 			\`Temperature\` float NOT NULL,
 			\`System\` text NOT NULL,
+			\`Type\` text NOT NULL,
 			\`Time\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP() ON UPDATE current_timestamp(),
 			PRIMARY KEY (\`PK\`)
 		) ENGINE=InnoDB DEFAULT CHARSET=latin1`,
@@ -174,6 +175,11 @@ if (config.get('useDb')) {
 		logs
 	);
 	await SQL.init(tables);
+	const typeCol = await SQL.query("SHOW COLUMNS FROM `temperature` LIKE 'Type';");
+	if (typeCol.length == 0) {
+		await SQL.query("ALTER TABLE `temperature` ADD COLUMN Type text NOT NULL;");
+		await SQL.query("UPDATE `temperature` SET Type = 'iq' WHERE 1=1;");
+	}
 }
 
 
@@ -486,11 +492,14 @@ function handleTemps(system, payload) {
 	const dataObj = {
 		'command':'data',
 		'data':'temps',
+		'type':payload.type,
 		'system':system,
 		'replace': false,
 		'points':{}
 	};
 	dataObj.points[timeStamp] = {};
+
+	if (Object.keys(payload.data).length == 0) return;
 
 	payload.data.forEach((frame) => {
 
@@ -501,9 +510,11 @@ function handleTemps(system, payload) {
 				tempAlert(frame.Name, frame.Temp, system);
 			}
 			dataObj.points[timeStamp][frame.Name] = frame.Temp;
+			const type = frame.Type == 'IQ Frame' ? 'iq' : 'generic';
 			SQL.insert({
 				'Frame': frame.Name,
 				'Temperature': frame.Temp,
+				'Type': type,
 				'System': system
 			}, 'temperature');
 		}
@@ -549,13 +560,14 @@ async function getTemperature(socket, header, payload) {
 	const from = Number(payload.from);
 	const to = Number(payload.to);
 	
-	const dateRows = await SQL.query(`SELECT ROW_NUMBER() OVER (ORDER BY PK) AS Number, \`PK\`, \`Time\` FROM \`temperature\` WHERE time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' GROUP BY \`Time\`; `);
+	const dateRows = await SQL.query(`SELECT ROW_NUMBER() OVER (ORDER BY PK) AS Number, \`PK\`, \`Time\` FROM \`temperature\` WHERE time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' AND \`type\` = '${payload.type}' GROUP BY \`Time\`; `);
 	const total = typeof dateRows.length == 'number' ? dateRows.length : 0;
 	if (total == 0) {
 		webServer.sendTo(socket, {
 			'command':'data',
 			'data':'temps',
 			'system':header.system,
+			'type':payload.type,
 			'replace': true,
 			'points': {}
 		});
@@ -571,9 +583,9 @@ async function getTemperature(socket, header, payload) {
 	const whereString = whereArr.join(',');
 	let query;
 	if (whereString == '') {
-		query = `SELECT * FROM \`temperature\` WHERE \`system\` = '${header.system}' ORDER BY \`PK\` ASC LIMIT 1; `;
+		query = `SELECT * FROM \`temperature\` WHERE \`system\` = '${header.system}' \`type\` = '${payload.type}' ORDER BY \`PK\` ASC LIMIT 1; `;
 	} else {
-		query = `SELECT * FROM \`temperature\` WHERE time IN (${whereString}) AND \`System\` = '${header.system}' ORDER BY \`PK\` ASC; `;
+		query = `SELECT * FROM \`temperature\` WHERE time IN (${whereString}) AND \`System\` = '${header.system}' \`type\` = '${payload.type}' ORDER BY \`PK\` ASC; `;
 	}
 
 	const tempRows = await SQL.query(query);
@@ -599,6 +611,7 @@ async function getTemperature(socket, header, payload) {
 	webServer.sendTo(socket, {
 		'command':'data',
 		'data':'temps',
+		'type':payload.type,
 		'system':header.system,
 		'replace': true,
 		'points': points

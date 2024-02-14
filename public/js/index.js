@@ -4,10 +4,12 @@
 
 let pingChart;
 let tempChart;
+let tempChartGeneric;
 let bootChart;
 let lastPing = -1;
 let lastBoot = -1;
 let lastTemp = -1;
+let lastTempGeneric = -1;
 
 function socketDoOpen(socket) {
 	console.log('Registering as client');
@@ -18,6 +20,15 @@ function socketDoOpen(socket) {
 	socket.send({
 		'command':'get',
 		'data':'temperature',
+		'type': 'iq',
+		'from': from,
+		'to': to
+	});
+
+	socket.send({
+		'command':'get',
+		'data':'temperature',
+		'type': 'generic',
 		'from': from,
 		'to': to
 	});
@@ -66,12 +77,21 @@ function socketDoMessage(header, payload) {
 				bootChart.update();
 				break;
 			case 'temps':
-				if (payload.replace) {
-					replaceTemps(payload.points);
+				if (payload.type == 'generic') {
+					if (payload.replace) {
+						replaceTemps(payload.points, tempChartGeneric);
+					} else {
+						addTemps(payload.points, tempChartGeneric);
+					}
+					lastTempGeneric = Date.now();
 				} else {
-					addTemps(payload.points);
+					if (payload.replace) {
+						replaceTemps(payload.points, tempChart);
+					} else {
+						addTemps(payload.points, tempChart);
+					}
+					lastTemp = Date.now();
 				}
-				lastTemp = Date.now();
 				break;
 			}
 		}
@@ -95,48 +115,48 @@ function socketDoMessage(header, payload) {
 	}
 }
 
-function addTemps(points) {
+function addTemps(points, chart) {
 	for (var timeStamp in points) {
-		let sets = tempChart.data.datasets.map((set)=>{return set.label;});
+		let sets = chart.data.datasets.map((set)=>{return set.label;});
 		let dateStamp = new Date(parseInt(timeStamp));
 		let point = points[timeStamp];
 		for (var frame in point) {
 			if (!sets.includes(frame)) {
 				let data = {};
 				data[dateStamp] = point[frame];
-				newTempDataSet(frame, data);
+				newTempDataSet(frame, data, chart);
 			} else {
-				tempChart.data.datasets[sets.indexOf(frame)].data[dateStamp] = point[frame];
+				chart.data.datasets[sets.indexOf(frame)].data[dateStamp] = point[frame];
 			}
 		}
 	}
-	tempChart.update();
+	chart.update();
 }
 
-function replaceTemps(points) {
-	tempChart.data.datasets = [];
+function replaceTemps(points, chart) {
+	chart.data.datasets = [];
 	for (var timeStamp in points) {
-		let sets = tempChart.data.datasets.map((set)=>{return set.label;});
+		let sets = chart.data.datasets.map((set)=>{return set.label;});
 		let dateStamp = new Date(parseInt(timeStamp));
 		let point = points[timeStamp];
 		for (var frame in point) {
 			if (!sets.includes(frame)) {
 				let data = {};
 				data[dateStamp] = point[frame];
-				newTempDataSet(frame, data);
+				newTempDataSet(frame, data, chart);
 			} else {
-				tempChart.data.datasets[sets.indexOf(frame)].data[dateStamp] = point[frame];
+				chart.data.datasets[sets.indexOf(frame)].data[dateStamp] = point[frame];
 			}
 		}
 	}
-	tempChart.update();
+	chart.update();
 }
 
 function rand() {
 	return Math.floor((Math.random() * 155)+100);
 }
 
-function newTempDataSet(name, data) {
+function newTempDataSet(name, data, chart) {
 	let r = rand();
 	let g = rand();
 	let b = rand();
@@ -152,8 +172,8 @@ function newTempDataSet(name, data) {
 		cubicInterpolationMode: 'monotone',
 		tension: 0.4
 	};
-	tempChart.data.datasets.push(dataset);
-	tempChart.update();
+	chart.data.datasets.push(dataset);
+	chart.update();
 }
 
 function renderTempChart() {
@@ -186,6 +206,38 @@ function renderTempChart() {
 		},
 	};
 	tempChart = new Chart(ctx, config);
+}
+
+function renderTempChartGeneric() {
+	const ctx = $('#tempChartGeneric');
+	const data = {
+		datasets: []
+	};
+	const config = {
+		type: 'line',
+		data: data,
+		options: {
+			responsive: true,
+			interaction: {
+				mode: 'index',
+				intersect: false,
+			},
+			stacked: false,
+			scales: {
+				x: {
+					type: 'time',
+					time: {
+						displayFormats: {
+							second: 'YY/MM/DD H:mm',
+							minute: 'YY/MM/DD H:mm',
+							hour: 'YY/MM/DD H:mm'
+						}
+					}
+				}
+			}
+		},
+	};
+	tempChartGeneric = new Chart(ctx, config);
 }
 
 function renderPingChart() {
@@ -281,6 +333,7 @@ function updateLast() {
 	$('#lastPing').text(prettifyTime(lastPing));
 	$('#lastBoot').text(prettifyTime(lastBoot));
 	$('#lastTemp').text(prettifyTime(lastTemp));
+	$('#lastTempGeneric').text(prettifyTime(lastTempGeneric));
 }
 
 function prettifyTime(time) {
@@ -321,6 +374,7 @@ function prettifyTime(time) {
 
 $(document).ready(function() {
 	renderTempChart();
+	renderTempChartGeneric();
 	renderPingChart();
 	renderBootChart(boots);
 
@@ -348,10 +402,21 @@ $(document).ready(function() {
 			webConnection.send({
 				'command':'get',
 				'data':'temperature',
+				'type':'iq',
 				'from': from,
 				'to': to
 			});
-
+		} else if ($trg.hasClass('tempButGeneric')) {
+			let time = parseInt($trg.data('time'));
+			let to = new Date().getTime()/1000;
+			let from = to - time;
+			webConnection.send({
+				'command':'get',
+				'data':'temperature',
+				'type':'generic',
+				'from': from,
+				'to': to
+			});
 		} else if ($trg.hasClass('pingBut')) {
 			let time = parseInt($trg.data('time'));
 			let to = new Date().getTime()/1000;
@@ -385,8 +450,17 @@ $(document).ready(function() {
 			webConnection.send({
 				'command':'get',
 				'data':'temperature',
+				'type':'iq',
 				'from': parseInt($('#tempFrom').val()),
 				'to': parseInt($('#tempTo').val())
+			});
+		} else if ($trg.is('#tempFromGeneric') || $trg.is('#tempToGeneric')) {
+			webConnection.send({
+				'command':'get',
+				'data':'temperature',
+				'type':'generic',
+				'from': parseInt($('#tempFromGeneric').val()),
+				'to': parseInt($('#tempToGeneric').val())
 			});
 		} else if ($trg.is('#pingFrom') || $trg.is('#pingTo')) {
 			webConnection.send({
@@ -410,6 +484,14 @@ $(document).ready(function() {
 		title: 'From'
 	});
 	$('#tempToPick').dateTimePicker({
+		dateFormat: 'YYYY-MM-DD HH:mm',
+		title: 'To'
+	});
+	$('#tempFromPickGeneric').dateTimePicker({
+		dateFormat: 'YYYY-MM-DD HH:mm',
+		title: 'From'
+	});
+	$('#tempToPickGeneric').dateTimePicker({
 		dateFormat: 'YYYY-MM-DD HH:mm',
 		title: 'To'
 	});
@@ -438,6 +520,15 @@ $(document).ready(function() {
 		webConnection.send({
 			'command':'get',
 			'data':'temperature',
+			'type': 'iq',
+			'from': from,
+			'to': to
+		});
+
+		webConnection.send({
+			'command':'get',
+			'data':'temperature',
+			'type': 'generic',
 			'from': from,
 			'to': to
 		});
