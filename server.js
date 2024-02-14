@@ -125,7 +125,7 @@ const tables = [
 			\`Temperature\` float NOT NULL,
 			\`System\` text NOT NULL,
 			\`Type\` text NOT NULL,
-			\`Time\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP() ON UPDATE current_timestamp(),
+			\`Time\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP(),
 			PRIMARY KEY (\`PK\`)
 		) ENGINE=InnoDB DEFAULT CHARSET=latin1`,
 		PK:'PK'
@@ -178,7 +178,7 @@ if (config.get('useDb')) {
 	const typeCol = await SQL.query("SHOW COLUMNS FROM `temperature` LIKE 'Type';");
 	if (typeCol.length == 0) {
 		await SQL.query("ALTER TABLE `temperature` ADD COLUMN Type text NOT NULL;");
-		await SQL.query("UPDATE `temperature` SET Type = 'iq' WHERE 1=1;");
+		await SQL.query("UPDATE `temperature` SET Type = 'iq', Time = Time WHERE 1=1;");
 	}
 }
 
