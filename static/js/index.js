@@ -18,100 +18,120 @@ function socketDoOpen(socket) {
 	let to = new Date().getTime()/1000;
 	let from = to - 7200;
 	socket.send({
-		'command':'get',
-		'data':'temperature',
-		'type': 'iq',
-		'from': from,
-		'to': to
+		'module': 'temperature',
+		'command':'getIQ',
+		'data': {
+			'from': from,
+			'to': to
+		}
 	});
 
 	socket.send({
-		'command':'get',
-		'data':'temperature',
-		'type': 'generic',
-		'from': from,
-		'to': to
+		'module':'temperature',
+		'command':'getGeneric',
+		'data': {
+			'from': from,
+			'to': to
+		}
 	});
 
 	socket.send({
+		'module':'ping',
 		'command':'get',
-		'data':'ping',
-		'from': from,
-		'to': to
+		'data': {
+			'from': from,
+			'to': to
+		}
 	});
 
 	socket.send({
+		'module':'boot',
 		'command':'get',
-		'data':'boot',
-		'from': to - 604800,
-		'to': to
+		'data': {
+			'from': to - 604800,
+			'to': to
+		}
 	});
 }
 
 function socketDoMessage(header, payload) {
+	switch (payload.module) {
+		case "temperature":
+			doTemperature(header, payload);
+			break;
+		case "ping":
+			doPing(header, payload);
+			break;
+		case "boot":
+			doBoot(header, payload);
+			break;
+		default:
+			break;
+	}
+}
+
+function doTemperature(header, payload) {
 	switch (payload.command) {
-	case 'data':
-		if (payload.system === currentSystem) {
-			switch (payload.data) {
-			case 'ping':
-				if (payload.replace) {
-					pingChart.data.datasets[0].data = payload.points;
-				} else {
-					const datePing = new Date(parseInt(payload.time));
-					const colour = payload.status == 1 ? '128, 255, 128' : '255, 64, 64';
-					pingChart.data.datasets[0].data[datePing] = payload.status;
-					pingChart.data.datasets[0].backgroundColor[0] = `rgba(${colour}, 0.2)`;
-					pingChart.data.datasets[0].borderColor[0] = `rgba(${colour}, 1)`;
-				}
-				lastPing = Date.now();
-				pingChart.update();
-				break;
-			case 'boot':
-				if (payload.replace) {
-					bootChart.data.datasets[0].data = payload.points;
-				} else {
-					const dateBoot = new Date(parseInt(payload.time));
-					bootChart.data.datasets[0].data[dateBoot] = 1;
-				}
-				lastBoot = Date.now();
-				bootChart.update();
-				break;
-			case 'temps':
-				if (payload.type == 'generic') {
-					if (payload.replace) {
-						replaceTemps(payload.points, tempChartGeneric);
-					} else {
-						addTemps(payload.points, tempChartGeneric);
-					}
-					lastTempGeneric = Date.now();
-				} else {
-					if (payload.replace) {
-						replaceTemps(payload.points, tempChart);
-					} else {
-						addTemps(payload.points, tempChart);
-					}
-					lastTemp = Date.now();
-				}
-				break;
+		case 'replace':
+			if (payload.data.type == 'generic') {
+				replaceTemps(payload.data.points, tempChartGeneric);
+				lastTempGeneric = Date.now();
+			} else {
+				replaceTemps(payload.data.points, tempChart);
+				lastTemp = Date.now();
 			}
-		}
-		break;
-	case 'command':
-		if (payload.serial == myID) {
-			switch (payload.action) {
-			case 'identify':
-				$('#t_indicatior').addClass('identify');
-				setTimeout(function(){
-					$('#t_indicatior').removeClass('identify');
-				}, 4000);
-				break;
-			default:
-
+			break;
+		case 'add':
+			if (payload.type == 'generic') {
+				addTemps(payload.data.points, tempChartGeneric);
+				lastTempGeneric = Date.now();
+			} else {
+				addTemps(payload.data.points, tempChart);
+				lastTemp = Date.now();
 			}
-		}
-		break;
-	default:
+			break;
+		default:
+			break;
+	}
+}
 
+function doPing(header, payload) {
+	switch (payload.command) {
+		case 'replace':
+			//if (payload.data.system == )
+			pingChart.data.datasets[0].data = payload.data.points;
+			lastPing = Date.now();
+			pingChart.update();
+			break;
+		case 'add':
+			const datePing = new Date(parseInt(payload.data.time));
+			const colour = payload.data.status == 1 ? '128, 255, 128' : '255, 64, 64';
+			pingChart.data.datasets[0].data[datePing] = payload.data.status;
+			pingChart.data.datasets[0].backgroundColor[0] = `rgba(${colour}, 0.2)`;
+			pingChart.data.datasets[0].borderColor[0] = `rgba(${colour}, 1)`;
+			lastPing = Date.now();
+			pingChart.update();
+			break;
+		default:
+			break;
+	}
+}
+
+function doBoot(header, payload) {
+	switch (payload.command) {
+		case 'replace':
+			bootChart.data.datasets[0].data = payload.data.points;
+			lastBoot = Date.now();
+			bootChart.update();
+			break;
+		case 'add':
+			const dateBoot = new Date(parseInt(payload.time));
+			bootChart.data.datasets[0].data[dateBoot] = 1;
+			lastBoot = Date.now();
+			bootChart.update();
+			break;
+		default:
+			break;
 	}
 }
 
@@ -400,22 +420,26 @@ $(document).ready(function() {
 			let to = new Date().getTime()/1000;
 			let from = to - time;
 			webConnection.send({
+				'module':'temperature',
 				'command':'get',
-				'data':'temperature',
-				'type':'iq',
-				'from': from,
-				'to': to
+				'data': {
+					'type':'iq',
+					'from': from,
+					'to': to
+				}
 			});
 		} else if ($trg.hasClass('tempButGeneric')) {
 			let time = parseInt($trg.data('time'));
 			let to = new Date().getTime()/1000;
 			let from = to - time;
 			webConnection.send({
+				'module':'temperature',
 				'command':'get',
-				'data':'temperature',
-				'type':'generic',
-				'from': from,
-				'to': to
+				'data': {
+					'type':'generic',
+					'from': from,
+					'to': to
+				}
 			});
 		} else if ($trg.hasClass('pingBut')) {
 			let time = parseInt($trg.data('time'));
@@ -423,10 +447,12 @@ $(document).ready(function() {
 			let from = to - time;
 
 			webConnection.send({
+				'module':'ping',
 				'command':'get',
-				'data':'ping',
-				'from': from,
-				'to': to
+				'data':{
+					'from': from,
+					'to': to
+				}
 			});
 		} else if ($trg.hasClass('bootBut')) {
 			let time = parseInt($trg.data('time'));
@@ -434,10 +460,12 @@ $(document).ready(function() {
 			let from = to - time;
 
 			webConnection.send({
+				'module':'boot',
 				'command':'get',
-				'data':'boot',
-				'from': from,
-				'to': to
+				'data': {
+					'from': from,
+					'to': to
+				}
 			});
 		} else if ($trg.hasClass('expandPanel')) {
 			$trg.closest('.panel').toggleClass('expanded');
@@ -518,33 +546,41 @@ $(document).ready(function() {
 		let to = new Date().getTime()/1000;
 		let from = to - 7200;
 		webConnection.send({
+			'module':'temperature',
 			'command':'get',
-			'data':'temperature',
-			'type': 'iq',
-			'from': from,
-			'to': to
+			'data': {
+				'type': 'iq',
+				'from': from,
+				'to': to
+			}
 		});
 
 		webConnection.send({
+			'module':'temperature',
 			'command':'get',
-			'data':'temperature',
-			'type': 'generic',
-			'from': from,
-			'to': to
+			'data': {
+				'type': 'generic',
+				'from': from,
+				'to': to
+			}
 		});
 
 		webConnection.send({
+			'module':'ping',
 			'command':'get',
-			'data':'ping',
-			'from': from,
-			'to': to
+			'data': {
+				'from': from,
+				'to': to
+			}
 		});
 
 		webConnection.send({
+			'module':'boot',
 			'command':'get',
-			'data':'boot',
-			'from': from,
-			'to': to
+			'data': {
+				'from': from,
+				'to': to
+			}
 		});
 	});
 });

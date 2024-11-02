@@ -8,8 +8,8 @@ import cors from 'cors';
 import express from 'express';
 import {Logs as _Logs} from 'xeue-logs';
 import {Config as _Config} from 'xeue-config';
-import {SQLSession as _SQL} from 'xeue-sql';
-import {Server as _Server} from 'xeue-webserver';
+import {SQLSession as _SQL, SQLSession} from 'xeue-sql';
+import {Server as _Server, message, header, payload, socket} from 'xeue-webserver';
 import Package from './package.json' with {type: "json"};
 
 
@@ -23,8 +23,15 @@ const nodemailer = require('nodemailer');
 
 const version = Package.version;
 
-const pingList = [];
-let SQL = false;
+type system = {
+	name: string,
+	latePing: boolean,
+	latePings: number
+}
+
+const pingList: system[] = [];
+
+let SQL: SQLSession;
 
 const Logs = new _Logs(true, "ArgosLogging", __data, 'D', false)
 const Config = new _Config(
@@ -209,28 +216,36 @@ startLoops();
 
 /* Server functions */
 
-async function doMessage(message, socket) {
+async function doMessage(message: message, socket: socket) {
 	const payload = message.payload;
 	const header = message.header;
-	if (typeof payload.source == 'undefined') {
-		payload.source = 'default';
-	}
-	switch (payload.command) {
-	case 'meta':
-		Logs.debug('Meta message', payload);
-		socket.send('Received meta');
-		break;
-	case 'register':
-		coreDoRegister(socket, header, payload);
-		break;
-	case 'log':
-		handleLog(header, payload);
-		break;
-	case 'get':
-		handleGet(socket, header, payload);
-		break;
-	default:
-		Logs.warn('Unknown message', message);
+
+	switch (payload.module) {
+		case 'temperature':
+			getTemperature(socket, header, payload);
+			break;
+		case 'ping':
+			getPings(socket, header, payload);
+			break;
+		case 'boot':
+			getBoots(socket, header, payload);
+			break;
+		default:
+			switch (payload.command) {
+				case 'meta':
+					Logs.debug('Meta message', payload);
+					socket.send('Received meta');
+					break;
+				case 'register':
+					coreDoRegister(socket, header, payload);
+					break;
+				case 'log':
+					handleLog(header, payload);
+					break;
+				default:
+					Logs.warn('Unknown message', message);
+				}
+			break;
 	}
 }
 
@@ -253,7 +268,7 @@ function startLoops() {
 	, 30*1000);
 }
 
-function resetPings(system) {
+function resetPings(system: string) {
 	let systems = pingList.map((item) => {return item?.name;});
 	let index = systems.indexOf(system);
 	pingList[index].latePing = false;
@@ -272,7 +287,7 @@ function checkPing() {
 	});
 }
 
-async function doLatePing(system) {
+async function doLatePing(system: system) {
 	system.latePings++;
 
 	if (system.latePings > 1080) {
@@ -301,18 +316,20 @@ async function doLatePing(system) {
 	}
 	
 	Server.sendToAll({
-		'command':'data',
-		'data':'ping',
-		'status':0,
-		'system': system.name,
-		'time': new Date().getTime()
+		'module': 'ping',
+		'command':'add',
+		'data': {
+			'status':0,
+			'system': system.name,
+			'time': new Date().getTime()
+		}
 	})
 	Logs.info(`${system.name} missed ${system.latePings} pings`);
 }
 
 /* Core functions & Message handeling */
 
-function coreDoRegister(socket, header, payload) {
+function coreDoRegister(socket: any, header: header, payload: payload) {
 	if (typeof socket.type == 'undefined') {
 		socket.type = header.type;
 	}
@@ -343,7 +360,7 @@ function coreDoRegister(socket, header, payload) {
 
 /* Handelers */
 
-function handleLog(header, payload) {
+function handleLog(header: header, payload: any) {
 	switch (payload.type) {
 	case 'ping':
 		handlePing(header.system);
@@ -357,22 +374,6 @@ function handleLog(header, payload) {
 	case 'ups':
 		handleUps(header.system, payload);
 		break;
-	}
-}
-
-function handleGet(socket, header, payload) {
-	switch (payload.data) {
-	case 'temperature':
-		getTemperature(socket, header, payload);
-		break;
-	case 'ping':
-		getPings(socket, header, payload);
-		break;
-	case 'boot':
-		getBoots(socket, header, payload);
-		break;
-	default:
-
 	}
 }
 
@@ -417,7 +418,7 @@ async function handleRoot(request, response) {
 	});
 }
 
-async function handlePing(system) {
+async function handlePing(system: string) {
 	Logs.debug(`Recieved a ping from: ${Logs.y}${system}${Logs.reset}`);
 	const systems = pingList.map((item) => {return item?.name;});
 	if (!systems.includes(system)) {
@@ -453,47 +454,52 @@ async function handlePing(system) {
 	}
 	
 	Server.sendToAll({
-		'command':'data',
-		'data':'ping',
-		'status':1,
-		'system': system,
-		'time': new Date().getTime()
+		'module': 'ping',
+		'command':'add',
+		'data': {
+			'status':1,
+			'system': system,
+			'time': new Date().getTime()
+		}
 	})
 }
 
-async function handleBoot(system) {
+async function handleBoot(system: string) {
 	Logs.debug(`Recieved a boot notification from: ${Logs.y}${system}${Logs.reset}`);
 	bootAlert(system);
 	
 	await SQL.insert({'Type':'Boot', 'Status':1, 'System':system}, 'status');
 		
 	Server.sendToAll({
-		'command':'data',
-		'data':'boot',
-		'status':1,
-		'system': system,
-		'time': new Date().getTime()
+		'module': 'boot',
+		'command':'add',
+		'data': {
+			'status':1,
+			'system': system,
+			'time': new Date().getTime()
+		}
 	})
 }
 
-function handleTemps(system, payload) {
+function handleTemps(system: string, payload: payload) {
 	Logs.debug(`Recieved some temperatures from: ${Logs.y}${system}${Logs.reset}`);
 
 	let average = 0;
 	let averageCounter = 0;
 	const timeStamp = new Date().getTime();
 	const sensorNames = Object.keys(payload.data);
-	Logs.debug(payload);
+	Logs.debug("Payload", payload);
 	const type = payload.data[sensorNames[0]].Type == 'IQ Frame' ? 'iq' : 'generic';
 	const dataObj = {
-		'command':'data',
-		'data':'temps',
-		'type':type,
-		'system':system,
-		'replace': false,
-		'points':{}
+		'module': 'temperature',
+		'command':'add',
+		'data': {
+			'type':type,
+			'system':system,
+			'points':{}
+		}
 	};
-	dataObj.points[timeStamp] = {};
+	dataObj.data.points[timeStamp] = {};
 
 	if (sensorNames.length == 0) return;
 
@@ -505,7 +511,7 @@ function handleTemps(system, payload) {
 			if (sensor.Temp > Config.get('warnTemp')) {
 				tempAlert(sensor.Name, sensor.Temp, system);
 			}
-			dataObj.points[timeStamp][sensor.Name] = sensor.Temp;
+			dataObj.data.points[timeStamp][sensor.Name] = sensor.Temp;
 			const type = sensor.Type == 'IQ Frame' ? 'iq' : 'generic';
 			SQL.insert({
 				'Frame': sensor.Name,
@@ -517,7 +523,7 @@ function handleTemps(system, payload) {
 	});
 
 	average = average/averageCounter;
-	dataObj.points[timeStamp].average = average;
+	dataObj.data.points[timeStamp].average = average;
 
 	Server.sendToAll(dataObj);
 }
@@ -526,10 +532,10 @@ async function handleUps(system, payload) {
 
 }
 
-async function getPings(socket, header, payload) {
+async function getPings(socket: socket, header: header, payload: payload) {
 	Logs.debug(`Getting pings for ${header.system}`);
-	const from = Number(payload.from);
-	const to = Number(payload.to);
+	const from = Number(payload.data.from);
+	const to = Number(payload.data.to);
 	
 	const countRows = await SQL.query(`SELECT count(\`PK\`) AS 'total' FROM \`status\` WHERE \`Type\`='Ping' AND time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `);
 	const total = Number(countRows[0].total);
@@ -547,29 +553,31 @@ async function getPings(socket, header, payload) {
 	});
 
 	Server.sendTo(socket, {
-		'command': 'data',
-		'data': 'ping',
-		'replace': true,
-		'system': header.system,
-		'points': pings
+		'module': 'ping',
+		'command': 'replace',
+		'data': {
+			'points': pings,
+			'system': header.system
+		}
 	});
 }
 
-async function getTemperature(socket, header, payload) {
+async function getTemperature(socket: socket, header: header, payload: payload) {
 	Logs.debug(`Getting temperatures for ${header.system}`);
-	const from = Number(payload.from);
-	const to = Number(payload.to);
+	const from = Number(payload.data.from);
+	const to = Number(payload.data.to);
 	
 	const dateRows = await SQL.query(`SELECT ROW_NUMBER() OVER (ORDER BY PK) AS Number, \`PK\`, \`Time\` FROM \`temperature\` WHERE time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`System\` = '${header.system}' AND \`Type\` = '${payload.type}' GROUP BY \`Time\`; `);
 	const total = typeof dateRows.length == 'number' ? dateRows.length : 0;
 	if (total == 0) {
 		Server.sendTo(socket, {
-			'command':'data',
-			'data':'temps',
-			'system':header.system,
-			'type':payload.type,
-			'replace': true,
-			'points': {}
+			'module': 'temperature',
+			'command':'replace',
+			'data': {
+				'system':header.system,
+				'type':payload.data.type,
+				'points': {}
+			}
 		});
 		return;
 	}
@@ -601,7 +609,7 @@ async function getTemperature(socket, header, payload) {
 
 		delete point.average;
 		const n = Object.keys(point).length;
-		const values = Object.values(point);
+		const values: number[] = Object.values(point);
 		const total = values.reduce((accumulator, value) => {
 			return accumulator + value;
 		}, 0);
@@ -609,36 +617,45 @@ async function getTemperature(socket, header, payload) {
 	});
 
 	Server.sendTo(socket, {
-		'command':'data',
-		'data':'temps',
-		'type':payload.type,
-		'system':header.system,
-		'replace': true,
-		'points': points
+		'module': 'temperature',
+		'command':'replace',
+		'data': {
+			'system':header.system,
+			'type':payload.type,
+			'points': points
+		}
 	});
 }
 
-async function getBoots(socket, header, payload) {
+async function getBoots(socket: socket, header: header, payload: payload) {
 	Logs.debug(`Getting boots for ${header.system}`);
-	const from = Number(payload.from);
-	const to = Number(payload.to);
-	
-	let bootRows = await SQL.query(`SELECT * FROM \`status\` WHERE \`Type\`='Boot' AND Time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `);
-	if (bootRows.length < 1) {
-		bootRows = await SQL.query(`SELECT * FROM \`status\` WHERE \`Type\`='Boot' AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC LIMIT 1; `);
+	const from = Number(payload.data.from);
+	const to = Number(payload.data.to);
+	try {
+		if (isNaN(from) || isNaN(to)) {
+			Logs.debug("Message", [from, to, isNaN(from), isNaN(to)])
+			Logs.error("Invalid range", payload);
+			throw new Error("Invalid range");
+		}
+		let bootRows: any = await SQL.query(`SELECT * FROM \`status\` WHERE \`Type\`='Boot' AND Time BETWEEN FROM_UNIXTIME(${from}) AND FROM_UNIXTIME(${to}) AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC; `);
+		if (typeof bootRows.length != "undefined") {
+			bootRows = await SQL.query(`SELECT * FROM \`status\` WHERE \`Type\`='Boot' AND \`system\` = '${header.system}' ORDER BY \`PK\` ASC LIMIT 1; `);
+		}
+		let boots = {};
+		bootRows.forEach((row) => {
+			boots[row.Time] = row.Status;
+		});
+		Server.sendTo(socket, {
+			'module': 'boot',
+			'command': 'replace',
+			'data': {
+				'system': header.system,
+				'points': boots
+			}
+		});
+	} catch (error) {
+		Logs.error("Couldn't parse requested times", error)
 	}
-	let boots = {};
-	bootRows.forEach((row) => {
-		boots[row.Time] = row.Status;
-	});
-
-	Server.sendTo(socket, {
-		'command': 'data',
-		'data': 'boot',
-		'replace': true,
-		'system': header.system,
-		'points': boots
-	});
 }
 
 /* Config */
